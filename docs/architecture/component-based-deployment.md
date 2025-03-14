@@ -34,21 +34,40 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant E as VS Code Extension
-    participant I as Installer
+    participant P as Command Palette
+    participant W as Setup Wizard
     participant B as Build System
+    participant E as VS Code Extension
     
     U->>E: Install Extension
-    E->>E: Check Environment
-    E->>I: Launch Setup
-    I->>I: Check Prerequisites
-    I->>I: Install Missing Tools
-    I->>B: Configure Build
+    U->>P: Open Command Palette
+    P->>W: Run "Smart Memory: Run Setup"
+    W->>W: Show Welcome Message
+    U->>W: Click "Start Setup"
+    W->>W: Check Server Binary
+    W->>U: Present Binary Options
+    U->>W: Choose "Build from Source"
+    W->>U: Select Source Directory
+    W->>B: Configure Build
     B->>B: Compile Components
-    B->>E: Install Binaries
-    E->>E: Update Settings
+    B->>W: Build Complete
+    W->>E: Configure Settings
+    W->>W: Complete Setup
     E->>U: Ready to Use
 ```
+
+The actual installation process now uses the VS Code command palette and setup wizard:
+
+1. User installs the extension from VS Code marketplace
+2. User opens the command palette (Ctrl+Shift+P/Cmd+Shift+P)
+3. User runs "Smart Memory: Run Setup" command
+4. Setup wizard guides through the process:
+   - Welcome message and setup initialization
+   - Server binary options (including build from source)
+   - Source directory selection
+   - Build process monitoring
+   - Configuration and settings
+5. Extension is ready to use after setup completion
 
 ## Key Components
 

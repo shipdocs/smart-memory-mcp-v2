@@ -38,15 +38,17 @@ For source-based installation (recommended):
 
 The extension will automatically detect if you need to compile the Smart Memory MCP components from source and guide you through the process.
 
-### Option 2: Component-Based Installation
+### Option 2: Component-Based Installation (Build from Source)
 
-This new approach compiles the components from source for optimal performance on your platform:
+This approach compiles the components from source for optimal performance on your platform:
 
 1. Install the extension from the marketplace or VSIX file
-2. When prompted, choose to compile from source
-3. The extension will run the appropriate installation script for your platform:
-   - **Linux/macOS**: `scripts/install.sh`
-   - **Windows**: `scripts/install.ps1`
+2. Open the VS Code command palette (Ctrl+Shift+P or Cmd+Shift+P)
+3. Run the "Smart Memory: Run Setup" command
+4. Click "Start Setup" when prompted
+5. When asked about the server binary, choose "Build from Source"
+6. Select your source directory when prompted
+7. Wait for the build to complete and follow the remaining setup steps
 
 This approach provides:
 - Platform-optimized builds
