@@ -1,0 +1,36 @@
+{
+  "categories": {
+    "progress": {
+      "max_tokens": 8000,
+      "priority": "high"
+    },
+    "product": {
+      "max_tokens": 10000,
+      "priority": "medium"
+    },
+    "decision": {
+      "max_tokens": 5000,
+      "priority": "medium"
+    },
+    "pattern": {
+      "max_tokens": 5000,
+      "priority": "low"
+    },
+    "context": {
+      "max_tokens": 10000,
+      "priority": "high"
+    }
+  },
+  "update_triggers": {
+    "auto_update": true,
+    "umb_command": true
+  },
+  "token_budget": {
+    "total": 50000,
+    "per_category": true
+  },
+  "relevance": {
+    "threshold": 0.7,
+    "boost_recent": true
+  }
+}

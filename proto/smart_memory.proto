@@ -1,0 +1,281 @@
+syntax = "proto3";
+
+package smart_memory;
+
+// Main MCP service definition
+service SmartMemoryMcp {
+    // Memory management
+    rpc StoreMemory (StoreRequest) returns (StoreResponse);
+    rpc RetrieveMemory (RetrieveRequest) returns (RetrieveResponse);
+    rpc OptimizeMemory (OptimizeRequest) returns (OptimizeResponse);
+    
+    // Context operations
+    rpc GetContext (ContextRequest) returns (ContextResponse);
+    rpc UpdateContext (UpdateContextRequest) returns (UpdateContextResponse);
+    rpc PredictContext (PredictRequest) returns (PredictResponse);
+    
+    // Mode management
+    rpc SwitchMode (SwitchModeRequest) returns (SwitchModeResponse);
+    rpc AnalyzeMode (AnalyzeModeRequest) returns (AnalyzeModeResponse);
+    
+    // Analytics
+    rpc GetMetrics (MetricsRequest) returns (MetricsResponse);
+    rpc TrackUsage (UsageRequest) returns (UsageResponse);
+    
+    // Memory Bank operations
+    rpc StoreMemoryBank (MemoryBankStoreRequest) returns (MemoryBankStoreResponse);
+    rpc GetMemoryBankContext (MemoryBankContextRequest) returns (MemoryBankContextResponse);
+    rpc OptimizeMemoryBank (MemoryBankOptimizeRequest) returns (MemoryBankOptimizeResponse);
+    rpc GetMemoryBankStats (MemoryBankStatsRequest) returns (MemoryBankStatsResponse);
+    
+    // UMB command handler
+    rpc HandleUmbCommand (UmbCommandRequest) returns (UmbCommandResponse);
+}
+
+// Message definitions
+message StoreRequest {
+    string content = 1;
+    string content_type = 2;
+    map<string, string> metadata = 3;
+    bool compress = 4;
+}
+
+message StoreResponse {
+    string memory_id = 1;
+    uint32 token_count = 2;
+    float compression_ratio = 3;
+}
+
+message RetrieveRequest {
+    string memory_id = 1;
+    bool include_metadata = 2;
+}
+
+message RetrieveResponse {
+    string content = 1;
+    map<string, string> metadata = 2;
+    uint32 token_count = 3;
+}
+
+message OptimizeRequest {
+    repeated string memory_ids = 1;
+    OptimizationStrategy strategy = 2;
+}
+
+message OptimizeResponse {
+    uint32 tokens_saved = 1;
+    float optimization_ratio = 2;
+    repeated string optimized_ids = 3;
+}
+
+message ContextRequest {
+    string mode = 1;
+    uint32 max_tokens = 2;
+    float relevance_threshold = 3;
+}
+
+message ContextResponse {
+    string context = 1;
+    uint32 token_count = 2;
+    float relevance_score = 3;
+    repeated ContextSource sources = 4;
+}
+
+message UpdateContextRequest {
+    string mode = 1;
+    string content = 2;
+    Priority priority = 3;
+}
+
+message UpdateContextResponse {
+    bool success = 1;
+    uint32 new_token_count = 2;
+    repeated string affected_modes = 3;
+}
+
+message PredictRequest {
+    string current_mode = 1;
+    string user_activity = 2;
+}
+
+message PredictResponse {
+    string predicted_context = 1;
+    float confidence = 2;
+    uint32 estimated_tokens = 3;
+}
+
+message SwitchModeRequest {
+    string target_mode = 1;
+    bool preserve_context = 2;
+}
+
+message SwitchModeResponse {
+    bool success = 1;
+    uint32 preserved_tokens = 2;
+    string previous_mode = 3;
+}
+
+message AnalyzeModeRequest {
+    string mode = 1;
+    uint32 time_window = 2;
+}
+
+message AnalyzeModeResponse {
+    float effectiveness_score = 1;
+    uint32 average_tokens = 2;
+    repeated ModeMetric metrics = 3;
+}
+
+message MetricsRequest {
+    uint32 time_range = 1;
+    repeated string metric_types = 2;
+}
+
+message MetricsResponse {
+    repeated Metric metrics = 1;
+    Usage usage = 2;
+    repeated Trend trends = 3;
+}
+
+message UsageRequest {
+    string mode = 1;
+    string action = 2;
+    map<string, string> metadata = 3;
+}
+
+message UsageResponse {
+    bool recorded = 1;
+    uint32 session_tokens = 2;
+    uint32 daily_tokens = 3;
+}
+
+// Enums
+enum OptimizationStrategy {
+    BALANCED = 0;
+    AGGRESSIVE = 1;
+    CONSERVATIVE = 2;
+}
+
+enum Priority {
+    LOW = 0;
+    MEDIUM = 1;
+    HIGH = 2;
+    CRITICAL = 3;
+}
+
+// Complex types
+message ContextSource {
+    string source_id = 1;
+    string source_type = 2;
+    float relevance = 3;
+}
+
+message ModeMetric {
+    string name = 1;
+    float value = 2;
+    string unit = 3;
+}
+
+message Metric {
+    string name = 1;
+    float value = 2;
+    uint64 timestamp = 3;
+}
+
+message Usage {
+    uint32 total_tokens = 1;
+    uint32 optimized_tokens = 2;
+    float cost_saved = 3;
+}
+
+message Trend {
+    string metric_name = 1;
+    repeated float values = 2;
+    repeated uint64 timestamps = 3;
+}
+
+// Memory Bank message definitions
+message MemoryBankStoreRequest {
+    string content = 1;
+    string category = 2;
+    string mode = 3;
+    map<string, string> metadata = 4;
+    string date = 5;
+}
+
+message MemoryBankStoreResponse {
+    string memory_id = 1;
+    uint32 token_count = 2;
+    string category = 3;
+    bool success = 4;
+}
+
+message MemoryBankContextRequest {
+    string mode = 1;
+    uint32 max_tokens = 2;
+    repeated string categories = 3;
+    float relevance_threshold = 4;
+    string date = 5;
+}
+
+message MemoryBankContextResponse {
+    string context = 1;
+    uint32 token_count = 2;
+    float relevance_score = 3;
+    repeated MemoryBankSource sources = 4;
+}
+
+message MemoryBankSource {
+    string id = 1;
+    string category = 2;
+    float relevance = 3;
+}
+
+message MemoryBankOptimizeRequest {
+    repeated string categories = 1;
+    uint32 target_tokens = 2;
+    string strategy = 3;
+}
+
+message MemoryBankOptimizeResponse {
+    uint32 tokens_before = 1;
+    uint32 tokens_after = 2;
+    uint32 tokens_saved = 3;
+    uint32 optimized_memories = 4;
+}
+
+message MemoryBankStatsRequest {
+    uint32 days = 1;
+    repeated string categories = 2;
+}
+
+message MemoryBankStatsResponse {
+    uint32 total_memories = 1;
+    uint32 total_tokens = 2;
+    map<string, uint32> tokens_by_category = 3;
+    map<string, uint32> memories_by_category = 4;
+    repeated MemoryBankCategoryStats category_stats = 5;
+}
+
+message MemoryBankCategoryStats {
+    string category = 1;
+    uint32 memory_count = 2;
+    uint32 token_count = 3;
+    float average_relevance = 4;
+    string last_updated = 5;
+}
+
+// UMB command messages
+message UmbCommandRequest {
+    string current_mode = 1;
+    string current_context = 2;
+    map<string, string> metadata = 3;
+}
+
+message UmbCommandResponse {
+    bool success = 1;
+    uint32 stored_memories = 2;
+    uint32 total_tokens = 3;
+    repeated string categories = 4;
+    string message = 5;
+}

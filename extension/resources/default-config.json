@@ -1,0 +1,34 @@
+{
+  "memory_bank": {
+    "categories": {
+      "context": { "max_tokens": 10000, "priority": "high" },
+      "decision": { "max_tokens": 5000, "priority": "medium" },
+      "progress": { "max_tokens": 8000, "priority": "high" },
+      "product": { "max_tokens": 10000, "priority": "medium" },
+      "pattern": { "max_tokens": 5000, "priority": "low" }
+    },
+    "update_triggers": {
+      "auto_update": true,
+      "umb_command": true
+    },
+    "token_budget": {
+      "total": 50000,
+      "per_category": true
+    },
+    "relevance": {
+      "threshold": 0.7,
+      "boost_recent": true
+    }
+  },
+  "server": {
+    "port": 50051,
+    "log_level": "info",
+    "auto_start": true,
+    "check_interval_ms": 30000
+  },
+  "client": {
+    "timeout_ms": 5000,
+    "retry_attempts": 3,
+    "retry_delay_ms": 1000
+  }
+}

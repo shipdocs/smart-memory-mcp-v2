@@ -1,0 +1,174 @@
+{
+  "name": "smart-memory-mcp-extension",
+  "displayName": "Smart Memory MCP",
+  "description": "Intelligent memory management for VS Code Memory Bank",
+  "version": "0.1.0",
+  "publisher": "smart-memory-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/example/smart-memory-mcp"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "smartMemory.storeMemory",
+        "title": "Smart Memory: Store Selection as Memory"
+      },
+      {
+        "command": "smartMemory.retrieveMemory",
+        "title": "Smart Memory: Retrieve Memory"
+      },
+      {
+        "command": "smartMemory.optimizeMemory",
+        "title": "Smart Memory: Optimize Memory Usage"
+      },
+      {
+        "command": "smartMemory.getContext",
+        "title": "Smart Memory: Get Context for Current Mode"
+      },
+      {
+        "command": "smartMemory.switchMode",
+        "title": "Smart Memory: Switch Mode"
+      },
+      {
+        "command": "smartMemory.showMetrics",
+        "title": "Smart Memory: Show Usage Metrics"
+      },
+      {
+        "command": "smartMemory.runSetup",
+        "title": "Smart Memory: Run Setup"
+      },
+      {
+        "command": "smartMemory.updateMemoryBank",
+        "title": "Smart Memory: Update Memory Bank (UMB)"
+      },
+      {
+        "command": "smartMemory.startServer",
+        "title": "Smart Memory: Start Server"
+      },
+      {
+        "command": "smartMemory.stopServer",
+        "title": "Smart Memory: Stop Server"
+      },
+      {
+        "command": "smartMemory.restartServer",
+        "title": "Smart Memory: Restart Server"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "smartMemory",
+          "title": "Smart Memory",
+          "icon": "resources/memory.svg"
+        }
+      ]
+    },
+    "views": {
+      "smartMemory": [
+        {
+          "id": "smartMemoryExplorer",
+          "name": "Memory Explorer"
+        },
+        {
+          "id": "smartMemoryMetrics",
+          "name": "Memory Metrics"
+        }
+      ]
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "smartMemory.storeMemory",
+          "when": "editorHasSelection",
+          "group": "smartMemory"
+        },
+        {
+          "command": "smartMemory.updateMemoryBank",
+          "group": "smartMemory"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "smartMemory.updateMemoryBank",
+        "key": "ctrl+shift+u",
+        "mac": "cmd+shift+u",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Smart Memory MCP",
+      "properties": {
+        "smartMemory.serverAddress": {
+          "type": "string",
+          "default": "localhost:50051",
+          "description": "Address of the Smart Memory MCP server"
+        },
+        "smartMemory.autoOptimize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically optimize memory usage"
+        },
+        "smartMemory.maxTokens": {
+          "type": "number",
+          "default": 2000,
+          "description": "Maximum number of tokens to use for context"
+        },
+        "smartMemory.customBinaryPath": {
+          "type": "string",
+          "default": null,
+          "description": "Custom path to the Smart Memory MCP server binary"
+        },
+        "smartMemory.customDataPath": {
+          "type": "string",
+          "default": null,
+          "description": "Custom path to the Smart Memory MCP data directory"
+        },
+        "smartMemory.autoStartServer": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the Smart Memory MCP server when VS Code starts"
+        },
+        "smartMemory.checkServerInterval": {
+          "type": "number",
+          "default": 30000,
+          "description": "Interval in milliseconds to check if the server is running"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "16.x",
+    "@types/vscode": "^1.80.0",
+    "@vscode/test-electron": "^2.3.4",
+    "glob": "^8.1.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.1.6"
+  },
+  "dependencies": {
+    "google-protobuf": "^3.21.2",
+    "grpc-web": "^1.4.2",
+    "@grpc/grpc-js": "^1.8.0",
+    "@grpc/proto-loader": "^0.7.0"
+  }
+}
