@@ -191,98 +191,45 @@ export class ServerManager {
    */
   async startServer(): Promise<boolean> {
     try {
-      // Check if the server is already running
-      const isRunning = await this.checkServerStatus();
-      if (isRunning) {
-        vscode.window.showInformationMessage('Smart Memory MCP server is already running');
-        return true;
-      }
-
-      // Check if port 50051 is in use
-      const isPortInUse = await this.isPortInUse(50051);
-      if (isPortInUse) {
-        console.log('Port 50051 is already in use, assuming server is running');
-        this.isRunning = true;
-        this.statusBar.updateServerStatus(true);
-        vscode.window.showInformationMessage('Smart Memory MCP server is already running on port 50051');
-        return true;
-      }
-
-      // Configure the MCP settings
-      await this.serverDiscovery.configureMcpSettings();
-
-      // Get the server binary path
-      const binaryPath = await this.serverDiscovery.ensureServerBinary();
-      if (!binaryPath) {
-        throw new Error('Failed to find or extract server binary');
-      }
-
-      // Get the config and db paths
-      const configPath = await this.serverDiscovery.getConfigPath();
-      const dbPath = await this.serverDiscovery.getDbPath();
-
       // Create output channel for server logs
       const outputChannel = vscode.window.createOutputChannel('Smart Memory MCP Server');
       outputChannel.show();
-      outputChannel.appendLine(`Starting server from: ${binaryPath}`);
-      outputChannel.appendLine(`Config path: ${configPath}`);
-      outputChannel.appendLine(`DB path: ${dbPath}`);
-
-      // Start the server process with pipes for stdout and stderr
-      this.serverProcess = child_process.spawn(binaryPath, [], {
-        env: {
-          ...process.env,
-          RUST_LOG: 'debug', // Increase log level to debug for more information
-          DB_PATH: dbPath,
-          CONFIG_PATH: configPath
-        },
-        detached: true, // Run the process in the background
-        stdio: ['ignore', 'pipe', 'pipe'] // Pipe stdout and stderr
+      
+      // Configure the MCP settings first
+      await this.serverDiscovery.configureMcpSettings();
+      
+      // Use the server manager script
+      const scriptPath = path.join(this.context.extensionPath, 'scripts', 'smart-memory-mcp-server-manager.js');
+      outputChannel.appendLine(`Using server manager script: ${scriptPath}`);
+      
+      // Execute the script with the start command
+      const result = child_process.spawnSync('node', [scriptPath, 'start'], {
+        encoding: 'utf8'
       });
-
-      // Capture stdout
-      if (this.serverProcess.stdout) {
-        this.serverProcess.stdout.on('data', (data) => {
-          const message = data.toString();
-          outputChannel.append(message);
-          console.log(`Server stdout: ${message}`);
-        });
+      
+      if (result.error) {
+        throw result.error;
       }
-
-      // Capture stderr
-      if (this.serverProcess.stderr) {
-        this.serverProcess.stderr.on('data', (data) => {
-          const message = data.toString();
-          outputChannel.append(message);
-          console.error(`Server stderr: ${message}`);
-        });
+      
+      // Log the output
+      if (result.stdout) {
+        outputChannel.appendLine(result.stdout);
       }
-
-      // Handle process exit
-      this.serverProcess.on('exit', (code, signal) => {
-        if (code !== 0) {
-          outputChannel.appendLine(`Server process exited with code ${code}, signal: ${signal}`);
-          this.isRunning = false;
-          this.statusBar.updateServerStatus(false);
-        }
-      });
-
-      // Unref the process to allow the extension to exit without killing the server
-      this.serverProcess.unref();
-
-      // Wait a bit for the server to start
-      await new Promise(resolve => setTimeout(resolve, 3000)); // Increased wait time
-
-      // Check if the server started successfully
-      if (this.serverProcess.exitCode !== null) {
-        outputChannel.appendLine(`Server process exited with code ${this.serverProcess.exitCode}`);
-        throw new Error(`Server process exited with code ${this.serverProcess.exitCode}`);
+      
+      if (result.stderr) {
+        outputChannel.appendLine(result.stderr);
       }
-
-      this.isRunning = true;
-      this.statusBar.updateServerStatus(true);
-      vscode.window.showInformationMessage('Smart Memory MCP server started successfully');
-      return true;
+      
+      // Check if the server is running
+      const isRunning = await this.checkServerStatus();
+      if (isRunning) {
+        this.isRunning = true;
+        this.statusBar.updateServerStatus(true);
+        vscode.window.showInformationMessage('Smart Memory MCP server started successfully');
+        return true;
+      } else {
+        throw new Error('Server failed to start');
+      }
     } catch (error) {
       console.error('Failed to start server:', error);
       this.isRunning = false;
@@ -297,14 +244,32 @@ export class ServerManager {
    */
   async stopServer(): Promise<boolean> {
     try {
-      // Check if the server is running
-      if (!this.isRunning || !this.serverProcess) {
-        vscode.window.showInformationMessage('Smart Memory MCP server is not running');
-        return true;
+      // Create output channel for server logs
+      const outputChannel = vscode.window.createOutputChannel('Smart Memory MCP Server');
+      outputChannel.show();
+      
+      // Use the server manager script
+      const scriptPath = path.join(this.context.extensionPath, 'scripts', 'smart-memory-mcp-server-manager.js');
+      outputChannel.appendLine(`Using server manager script: ${scriptPath}`);
+      
+      // Execute the script with the stop command
+      const result = child_process.spawnSync('node', [scriptPath, 'stop'], {
+        encoding: 'utf8'
+      });
+      
+      if (result.error) {
+        throw result.error;
       }
-
-      // Kill the server process
-      this.serverProcess.kill();
+      
+      // Log the output
+      if (result.stdout) {
+        outputChannel.appendLine(result.stdout);
+      }
+      
+      if (result.stderr) {
+        outputChannel.appendLine(result.stderr);
+      }
+      
       this.serverProcess = null;
       this.isRunning = false;
       this.statusBar.updateServerStatus(false);
@@ -322,13 +287,42 @@ export class ServerManager {
    */
   async restartServer(): Promise<boolean> {
     try {
-      // Stop the server if it's running
-      if (this.isRunning) {
-        await this.stopServer();
+      // Create output channel for server logs
+      const outputChannel = vscode.window.createOutputChannel('Smart Memory MCP Server');
+      outputChannel.show();
+      
+      // Use the server manager script
+      const scriptPath = path.join(this.context.extensionPath, 'scripts', 'smart-memory-mcp-server-manager.js');
+      outputChannel.appendLine(`Using server manager script: ${scriptPath}`);
+      
+      // Execute the script with the restart command
+      const result = child_process.spawnSync('node', [scriptPath, 'restart'], {
+        encoding: 'utf8'
+      });
+      
+      if (result.error) {
+        throw result.error;
       }
-
-      // Start the server
-      return await this.startServer();
+      
+      // Log the output
+      if (result.stdout) {
+        outputChannel.appendLine(result.stdout);
+      }
+      
+      if (result.stderr) {
+        outputChannel.appendLine(result.stderr);
+      }
+      
+      // Check if the server is running
+      const isRunning = await this.checkServerStatus();
+      if (isRunning) {
+        this.isRunning = true;
+        this.statusBar.updateServerStatus(true);
+        vscode.window.showInformationMessage('Smart Memory MCP server restarted successfully');
+        return true;
+      } else {
+        throw new Error('Server failed to restart');
+      }
     } catch (error) {
       console.error('Failed to restart server:', error);
       vscode.window.showErrorMessage(`Failed to restart Smart Memory MCP server: ${error}`);

@@ -153,7 +153,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "generate-grpc-web": "protoc -I=../proto smart_memory.proto --js_out=import_style=commonjs:./src/generated --grpc-web_out=import_style=typescript,mode=grpcwebtext:./src/generated"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",

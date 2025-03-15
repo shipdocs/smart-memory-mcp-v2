@@ -1,15 +1,7 @@
 {
   "categories": {
-    "progress": {
-      "max_tokens": 8000,
-      "priority": "high"
-    },
     "product": {
       "max_tokens": 10000,
-      "priority": "medium"
-    },
-    "decision": {
-      "max_tokens": 5000,
       "priority": "medium"
     },
     "pattern": {
@@ -18,6 +10,14 @@
     },
     "context": {
       "max_tokens": 10000,
+      "priority": "high"
+    },
+    "decision": {
+      "max_tokens": 5000,
+      "priority": "medium"
+    },
+    "progress": {
+      "max_tokens": 8000,
       "priority": "high"
     }
   },

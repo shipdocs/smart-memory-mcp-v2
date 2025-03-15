@@ -485,7 +485,14 @@ export class ServerDiscovery {
       },
       disabled: false,
       timeout: 60,
-      alwaysAllow: ["UMB", "HandleUmbCommand"]
+      alwaysAllow: [
+        "handleUmbCommand",
+        "updateMemoryBank",
+        "storeMemory",
+        "retrieveMemory",
+        "optimizeMemory",
+        "getContext"
+      ]
     };
     
     // Create the settings directory if it doesn't exist
@@ -562,7 +569,14 @@ export class ServerDiscovery {
         },
         disabled: false,
         timeout: 60,
-        alwaysAllow: ["UMB", "HandleUmbCommand"]
+        alwaysAllow: [
+          "handleUmbCommand",
+          "updateMemoryBank",
+          "storeMemory",
+          "retrieveMemory",
+          "optimizeMemory",
+          "getContext"
+        ]
       };
       
       // Write the updated Claude desktop config back to the file

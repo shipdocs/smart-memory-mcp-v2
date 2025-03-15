@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
-import * as grpc from 'grpc-web';
+import * as grpcWeb from 'grpc-web';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as protoLoader from '@grpc/proto-loader';
+import * as grpc from '@grpc/grpc-js';
 
 // Define the types for our gRPC service
 interface StoreRequest {
@@ -189,235 +192,102 @@ export class McpClient {
   private client: any;
   private serverAddress: string;
   private connected: boolean = false;
+  private protoPath: string;
+  private grpcService: any;
+  private initPromise: Promise<void>;
 
   constructor(serverAddress: string) {
     this.serverAddress = serverAddress;
-    this.initClient();
+    // Fix the path to point to the correct proto file location
+    this.protoPath = path.join(__dirname, '../../../proto/smart_memory.proto');
+    this.initPromise = this.initClient();
   }
 
-  private initClient() {
+  private async initClient(): Promise<void> {
     try {
-      // In a real implementation, we would use the generated gRPC-Web client
-      // For now, we'll simulate the client with a simple object
-      this.client = {
-        storeMemory: this.createRpcMethod('StoreMemory'),
-        retrieveMemory: this.createRpcMethod('RetrieveMemory'),
-        optimizeMemory: this.createRpcMethod('OptimizeMemory'),
-        getContext: this.createRpcMethod('GetContext'),
-        updateContext: this.createRpcMethod('UpdateContext'),
-        predictContext: this.createRpcMethod('PredictContext'),
-        switchMode: this.createRpcMethod('SwitchMode'),
-        analyzeMode: this.createRpcMethod('AnalyzeMode'),
-        getMetrics: this.createRpcMethod('GetMetrics'),
-        trackUsage: this.createRpcMethod('TrackUsage'),
-        
-        // Memory Bank methods
-        storeMemoryBank: this.createRpcMethod('StoreMemoryBank'),
-        getMemoryBankContext: this.createRpcMethod('GetMemoryBankContext'),
-        optimizeMemoryBank: this.createRpcMethod('OptimizeMemoryBank'),
-        getMemoryBankStats: this.createRpcMethod('GetMemoryBankStats'),
-        
-        // UMB command handler
-        handleUmbCommand: this.createRpcMethod('HandleUmbCommand'),
-        
-        // Server management
-        isServerRunning: this.createRpcMethod('IsServerRunning'),
-        startServer: this.createRpcMethod('StartServer')
-      };
+      // Check if the proto file exists
+      if (!fs.existsSync(this.protoPath)) {
+        throw new Error(`Proto file not found at ${this.protoPath}`);
+      }
 
-      this.connected = true;
+      // Load the proto file
+      const packageDefinition = await protoLoader.load(this.protoPath, {
+        keepCase: true,
+        longs: String,
+        enums: String,
+        defaults: true,
+        oneofs: true
+      });
+      
+      // Create the gRPC service
+      const protoDescriptor = grpc.loadPackageDefinition(packageDefinition) as any;
+      this.grpcService = protoDescriptor.smart_memory?.SmartMemoryMcp;
+      
+      if (!this.grpcService) {
+        throw new Error('SmartMemoryMcp service not found in proto file');
+      }
+      
+      // Create the gRPC client
+      this.client = new this.grpcService(
+        this.serverAddress,
+        grpc.credentials.createInsecure()
+      );
+      
+      // Test the connection
+      try {
+        // Try to connect to the server using a simple health check
+        await new Promise<void>((resolve, reject) => {
+          const deadline = new Date();
+          deadline.setSeconds(deadline.getSeconds() + 5); // 5 second timeout
+          
+          this.client.waitForReady(deadline, (error: Error | null) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve();
+            }
+          });
+        });
+        
+        console.log(`Successfully connected to server at ${this.serverAddress}`);
+        this.connected = true;
+      } catch (connectionError) {
+        console.warn(`Could not connect to server: ${connectionError}`);
+        throw new Error(`Could not connect to Smart Memory MCP server at ${this.serverAddress}. Please ensure the server is running.`);
+      }
+      
+      console.log(`Connected to Smart Memory MCP server at ${this.serverAddress}`);
     } catch (error) {
       console.error('Failed to initialize MCP client:', error);
       this.connected = false;
+      throw error;
     }
   }
 
-  private createRpcMethod(methodName: string) {
-    return (request: any, callback: (error: Error | null, response: any) => void) => {
-      // In a real implementation, this would make an actual gRPC-Web call
-      // For now, we'll simulate the response based on the method name
-      
-      // Simulate network delay
-      setTimeout(() => {
-        try {
-          let response: any;
-          
-          switch (methodName) {
-            case 'IsServerRunning':
-              response = {
-                running: true
-              };
-              break;
-              
-            case 'StartServer':
-              response = {
-                success: true
-              };
-              break;
-            case 'StoreMemory':
-              response = {
-                memory_id: `mem_${Math.random().toString(36).substring(2, 10)}`,
-                token_count: Math.floor(request.content.length / 4),
-                compression_ratio: request.compress ? 0.8 : 1.0
-              };
-              break;
-              
-            case 'RetrieveMemory':
-              response = {
-                content: 'Sample memory content',
-                metadata: { source: 'vscode', language: 'typescript' },
-                token_count: 10
-              };
-              break;
-              
-            case 'OptimizeMemory':
-              response = {
-                tokens_saved: 50,
-                optimization_ratio: 0.3,
-                optimized_ids: request.memory_ids
-              };
-              break;
-              
-            case 'GetContext':
-              response = {
-                context: `Context for ${request.mode} mode with ${request.max_tokens} tokens`,
-                token_count: Math.min(request.max_tokens, 500),
-                relevance_score: 0.75,
-                sources: [
-                  { source_id: 'mem_123', source_type: 'text/plain', relevance: 0.8 },
-                  { source_id: 'mem_456', source_type: 'text/markdown', relevance: 0.7 }
-                ]
-              };
-              break;
-              
-            case 'SwitchMode':
-              response = {
-                success: true,
-                preserved_tokens: request.preserve_context ? 50 : 0,
-                previous_mode: 'code'
-              };
-              break;
-              
-            case 'GetMetrics':
-              response = {
-                metrics: [
-                  { name: 'Total Tokens', value: '1500', unit: 'tokens', change: 0.05 },
-                  { name: 'Memory Count', value: '25', unit: 'memories', change: 0.1 }
-                ],
-                usage: {
-                  total_tokens: 1500,
-                  total_memories: 25,
-                  tokens_by_mode: { code: 800, architect: 400, debug: 300 }
-                },
-                trends: [
-                  {
-                    name: 'Token Usage',
-                    values: [100, 150, 200, 180, 250],
-                    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
-                  }
-                ]
-              };
-              break;
-            
-            // Memory Bank methods
-            case 'StoreMemoryBank':
-              response = {
-                memory_id: `mem_${Math.random().toString(36).substring(2, 10)}`,
-                token_count: Math.floor(request.content.length / 4),
-                category: request.category || 'context',
-                success: true
-              };
-              break;
-              
-            case 'GetMemoryBankContext':
-              response = {
-                context: `Memory Bank context for ${request.mode} mode with categories: ${request.categories.join(', ')}`,
-                token_count: Math.min(request.max_tokens, 500),
-                relevance_score: 0.85,
-                sources: [
-                  { id: 'mem_123', category: 'context', relevance: 0.9 },
-                  { id: 'mem_456', category: 'decision', relevance: 0.8 },
-                  { id: 'mem_789', category: 'progress', relevance: 0.7 }
-                ]
-              };
-              break;
-              
-            case 'OptimizeMemoryBank':
-              const tokensBefore = 5000;
-              const tokensAfter = request.strategy === 'aggressive' ? 2500 :
-                                 request.strategy === 'conservative' ? 4500 : 3500;
-              response = {
-                tokens_before: tokensBefore,
-                tokens_after: tokensAfter,
-                tokens_saved: tokensBefore - tokensAfter,
-                optimized_memories: 25
-              };
-              break;
-              
-            case 'GetMemoryBankStats':
-              response = {
-                total_memories: 50,
-                total_tokens: 10000,
-                tokens_by_category: {
-                  context: 5000,
-                  decision: 2000,
-                  progress: 3000
-                },
-                memories_by_category: {
-                  context: 25,
-                  decision: 10,
-                  progress: 15
-                },
-                category_stats: [
-                  {
-                    category: 'context',
-                    memory_count: 25,
-                    token_count: 5000,
-                    average_relevance: 0.8,
-                    last_updated: new Date().toISOString().split('T')[0]
-                  },
-                  {
-                    category: 'decision',
-                    memory_count: 10,
-                    token_count: 2000,
-                    average_relevance: 0.7,
-                    last_updated: new Date().toISOString().split('T')[0]
-                  },
-                  {
-                    category: 'progress',
-                    memory_count: 15,
-                    token_count: 3000,
-                    average_relevance: 0.75,
-                    last_updated: new Date().toISOString().split('T')[0]
-                  }
-                ]
-              };
-              break;
-              
-            default:
-              response = { success: true };
-          }
-          
-          callback(null, response);
-        } catch (error) {
-          callback(error as Error, null);
-        }
-      }, 100);
-    };
+  private initMockClient() {
+    console.error('Mock client implementation has been removed.');
+    console.error('Please ensure the Smart Memory MCP server is running.');
+    this.connected = false;
+    throw new Error('Mock client implementation has been removed. Please ensure the Smart Memory MCP server is running.');
   }
 
   async testConnection(): Promise<boolean> {
-    if (!this.connected) {
-      throw new Error('Client not initialized');
-    }
-
     try {
+      // Wait for initialization to complete
+      await this.initPromise;
+      
+      if (!this.connected) {
+        throw new Error('Client not initialized. Please ensure the Smart Memory MCP server is running.');
+      }
+
       // Try to get context as a simple test
       await this.getContext('code', 10, 0.5);
+      console.log('Connection test successful');
       return true;
     } catch (error) {
       console.error('Connection test failed:', error);
-      throw error;
+      this.connected = false;
+      throw new Error(`Connection test failed: ${error}. Please ensure the Smart Memory MCP server is running.`);
     }
   }
 
@@ -427,8 +297,11 @@ export class McpClient {
     metadata: { [key: string]: string } = {},
     compress: boolean = true
   ): Promise<StoreResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
-      throw new Error('Client not initialized');
+      throw new Error('Client not initialized. Please ensure the Smart Memory MCP server is running.');
     }
 
     return new Promise((resolve, reject) => {
@@ -454,8 +327,11 @@ export class McpClient {
     memoryId: string,
     includeMetadata: boolean = true
   ): Promise<RetrieveResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
-      throw new Error('Client not initialized');
+      throw new Error('Client not initialized. Please ensure the Smart Memory MCP server is running.');
     }
 
     return new Promise((resolve, reject) => {
@@ -480,6 +356,9 @@ export class McpClient {
     strategy: 'BALANCED' | 'AGGRESSIVE' | 'CONSERVATIVE' = 'BALANCED',
     priority: 'NORMAL' | 'HIGH' | 'LOW' = 'NORMAL'
   ): Promise<OptimizeResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
       throw new Error('Client not initialized');
     }
@@ -511,6 +390,9 @@ export class McpClient {
     maxTokens: number = 1000,
     relevanceThreshold: number = 0.5
   ): Promise<ContextResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
       throw new Error('Client not initialized');
     }
@@ -537,6 +419,9 @@ export class McpClient {
     newMode: string,
     preserveContext: boolean = true
   ): Promise<SwitchModeResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
       throw new Error('Client not initialized');
     }
@@ -562,6 +447,9 @@ export class McpClient {
     timePeriodDays: number = 7,
     modes: string[] = []
   ): Promise<MetricsResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
       throw new Error('Client not initialized');
     }
@@ -591,6 +479,9 @@ export class McpClient {
     metadata: { [key: string]: string } = {},
     date: string = new Date().toISOString().split('T')[0]
   ): Promise<MemoryBankStoreResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
       throw new Error('Client not initialized');
     }
@@ -622,6 +513,9 @@ export class McpClient {
     relevanceThreshold: number = 0.5,
     date: string = ''
   ): Promise<MemoryBankContextResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
       throw new Error('Client not initialized');
     }
@@ -651,6 +545,9 @@ export class McpClient {
     targetTokens: number = 0,
     strategy: 'balanced' | 'aggressive' | 'conservative' = 'balanced'
   ): Promise<MemoryBankOptimizeResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
       throw new Error('Client not initialized');
     }
@@ -677,6 +574,9 @@ export class McpClient {
     days: number = 30,
     categories: string[] = []
   ): Promise<MemoryBankStatsResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
       throw new Error('Client not initialized');
     }
@@ -704,8 +604,11 @@ export class McpClient {
     currentContext: string,
     metadata: { [key: string]: string } = {}
   ): Promise<UmbCommandResponse> {
+    // Wait for initialization to complete
+    await this.initPromise;
+    
     if (!this.connected) {
-      throw new Error('Client not initialized');
+      throw new Error('Client not initialized. Please ensure the Smart Memory MCP server is running to update the Memory Bank.');
     }
 
     return new Promise((resolve, reject) => {
@@ -717,8 +620,10 @@ export class McpClient {
         },
         (error: Error | null, response: UmbCommandResponse) => {
           if (error) {
-            reject(error);
+            console.error('Error updating Memory Bank:', error);
+            reject(new Error(`Failed to update Memory Bank: ${error}. Please ensure the Smart Memory MCP server is running.`));
           } else {
+            console.log('Memory Bank updated successfully:', response);
             resolve(response);
           }
         }
@@ -728,7 +633,15 @@ export class McpClient {
   
   // Server management methods
   async isServerRunning(): Promise<boolean> {
-    if (!this.connected) {
+    try {
+      // Wait for initialization to complete
+      await this.initPromise;
+      
+      if (!this.connected) {
+        return false;
+      }
+    } catch (error) {
+      console.error('Error checking server status:', error);
       return false;
     }
 
@@ -748,22 +661,30 @@ export class McpClient {
   }
   
   async startServer(): Promise<boolean> {
-    if (!this.connected) {
-      throw new Error('Client not initialized');
-    }
+    try {
+      // Wait for initialization to complete
+      await this.initPromise;
+      
+      if (!this.connected) {
+        throw new Error('Client not initialized');
+      }
 
-    return new Promise((resolve, reject) => {
-      this.client.startServer(
-        {},
-        (error: Error | null, response: { success: boolean }) => {
-          if (error) {
-            console.error('Error starting server:', error);
-            resolve(false);
-          } else {
-            resolve(response.success);
+      return new Promise((resolve, reject) => {
+        this.client.startServer(
+          {},
+          (error: Error | null, response: { success: boolean }) => {
+            if (error) {
+              console.error('Error starting server:', error);
+              resolve(false);
+            } else {
+              resolve(response.success);
+            }
           }
-        }
-      );
-    });
+        );
+      });
+    } catch (error) {
+      console.error('Error starting server:', error);
+      return false;
+    }
   }
 }

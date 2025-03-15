@@ -4,12 +4,16 @@ use tokio::signal;
 
 mod service;
 mod storage;
+mod server_manager;
 mod proto {
     tonic::include_proto!("smart_memory");
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Check if this is a server manager command
+    server_manager::integrate_server_manager();
+    
     println!("Starting Smart Memory MCP server...");
     
     let start_time = std::time::Instant::now();
