@@ -5,56 +5,280 @@ on:
     tags:
       - 'v*'
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
+  build:
+    name: Build Release Artifacts
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary_name: smart-memory-mcp-core
+            platform: linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: smart-memory-mcp-core.exe
+            platform: windows
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            binary_name: smart-memory-mcp-core
+            platform: macos
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'extension/package-lock.json'
+    
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: ${{ matrix.target }}
+        override: true
+    
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "core -> target"
+    
+    - name: Build
+      working-directory: ./core
+      run: cargo build --release --target ${{ matrix.target }}
+    
+    - name: Run tests
+      working-directory: ./core
+      run: cargo test --release --target ${{ matrix.target }}
+    
+    - name: Install extension dependencies
+      working-directory: ./extension
+      run: npm ci
+    
+    - name: Build extension
+      working-directory: ./extension
+      run: npm run build
+    
+    - name: Create platform-specific bin directory
+      run: mkdir -p extension/bin/${{ matrix.platform }}
+    
+    - name: Copy binary to extension
+      run: |
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cp core/target/${{ matrix.target }}/release/${{ matrix.binary_name }} extension/bin/${{ matrix.platform }}/
+        else
+          cp core/target/${{ matrix.target }}/release/${{ matrix.binary_name }} extension/bin/${{ matrix.platform }}/
+        fi
+      shell: bash
+    
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: smart-memory-mcp-${{ matrix.platform }}
+        path: core/target/${{ matrix.target }}/release/${{ matrix.binary_name }}
+    
+    - name: Upload platform-specific extension bin directory
+      uses: actions/upload-artifact@v3
+      with:
+        name: extension-bin-${{ matrix.platform }}
+        path: extension/bin/${{ matrix.platform }}
+    
+    - name: Package extension (Linux only)
+      if: matrix.os == 'ubuntu-latest'
+      working-directory: ./extension
+      run: |
+        npm run package
+        mkdir -p ../dist
+        cp *.vsix ../dist/
+    
+    - name: Upload VSIX artifact (Linux only)
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v3
+      with:
+        name: vsix-package
+        path: dist/*.vsix
+
+  package-extension:
+    name: Package Complete Extension
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install extension dependencies
+      working-directory: ./extension
+      run: npm ci
+    
+    - name: Download all bin artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+    
+    - name: Create bin directories
+      run: |
+        mkdir -p extension/bin/linux
+        mkdir -p extension/bin/windows
+        mkdir -p extension/bin/macos
+    
+    - name: Copy binaries to extension
+      run: |
+        cp artifacts/extension-bin-linux/* extension/bin/linux/ || true
+        cp artifacts/extension-bin-windows/* extension/bin/windows/ || true
+        cp artifacts/extension-bin-macos/* extension/bin/macos/ || true
+    
+    - name: Make binaries executable
+      run: |
+        chmod +x extension/bin/linux/* || true
+        chmod +x extension/bin/macos/* || true
+    
+    - name: Package extension with all binaries
+      working-directory: ./extension
+      run: |
+        npm run package
+        mkdir -p ../dist
+        cp *.vsix ../dist/
+    
+    - name: Upload complete VSIX package
+      uses: actions/upload-artifact@v3
+      with:
+        name: smart-memory-mcp-extension-complete
+        path: dist/*.vsix
+
   create-release:
+    name: Create GitHub Release
+    needs: package-extension
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
+    - uses: actions/checkout@v3
+    
+    - name: Get version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+    
+    - name: Display structure of downloaded files
+      run: ls -R artifacts
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Smart Memory MCP v${{ steps.get_version.outputs.VERSION }}
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+        body: |
+          # Smart Memory MCP v${{ steps.get_version.outputs.VERSION }}
+          
+          ## What's New
+          
+          <!-- Add release notes here -->
+          
+          ## Installation
+          
+          1. Download the VSIX file for your platform
+          2. In VS Code, go to Extensions view (Ctrl+Shift+X)
+          3. Click "..." > "Install from VSIX..."
+          4. Select the downloaded VSIX file
+    
+    - name: Upload Linux Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/smart-memory-mcp-linux/smart-memory-mcp-core
+        asset_name: smart-memory-mcp-core-linux
+        asset_content_type: application/octet-stream
+    
+    - name: Upload Windows Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/smart-memory-mcp-windows/smart-memory-mcp-core.exe
+        asset_name: smart-memory-mcp-core-windows.exe
+        asset_content_type: application/octet-stream
+    
+    - name: Upload macOS Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/smart-memory-mcp-macos/smart-memory-mcp-core
+        asset_name: smart-memory-mcp-core-macos
+        asset_content_type: application/octet-stream
+    
+    - name: Upload VS Code Extension
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: artifacts/smart-memory-mcp-extension-complete/*.vsix
+        asset_name: smart-memory-mcp-extension-${{ steps.get_version.outputs.VERSION }}.vsix
+        asset_content_type: application/octet-stream
 
-  build-core:
+  update-latest:
+    name: Update Latest Tag
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc') }}
+    
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+    
+    - name: Update latest tag
+      run: |
+        git config --global user.name 'GitHub Actions'
+        git config --global user.email 'actions@github.com'
+        git tag -f latest
+        git push -f origin latest
+
+  publish-marketplace:
+    name: Publish to VS Code Marketplace
     needs: create-release
     runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref, 'alpha') && !contains(github.ref, 'beta') && !contains(github.ref, 'rc') }}
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build release
-        run: cd core && cargo build --release
-      - name: Upload core binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./core/target/release/smart-memory-mcp
-          asset_name: smart-memory-mcp-${{ runner.os }}
-          asset_content_type: application/octet-stream
-
-  build-extension:
-    needs: create-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      - name: Package extension
-        run: cd extension && npm ci && npm run package
-      - name: Upload extension
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./extension/smart-memory-mcp.vsix
-          asset_name: smart-memory-mcp.vsix
-          asset_content_type: application/octet-stream
+    - name: Download VSIX artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: smart-memory-mcp-extension-complete
+        path: extension
+    
+    - name: Publish to Visual Studio Marketplace
+      if: success()
+      run: |
+        npx vsce publish -p ${{ secrets.VSCE_PAT }} --packagePath extension/*.vsix
+      env:
+        VSCE_PAT: ${{ secrets.VSCE_PAT }}

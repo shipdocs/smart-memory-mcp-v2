@@ -1,0 +1,142 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test-core:
+    name: Test Core
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: x86_64-apple-darwin
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: ${{ matrix.target }}
+        override: true
+        components: rustfmt, clippy
+    
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "core -> target"
+    
+    - name: Check formatting
+      working-directory: ./core
+      run: cargo fmt --all -- --check
+    
+    - name: Clippy
+      working-directory: ./core
+      run: cargo clippy -- -D warnings
+    
+    - name: Build
+      working-directory: ./core
+      run: cargo build --target ${{ matrix.target }}
+    
+    - name: Run tests
+      working-directory: ./core
+      run: cargo test --target ${{ matrix.target }}
+
+  test-extension:
+    name: Test Extension
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'extension/package-lock.json'
+    
+    - name: Install extension dependencies
+      working-directory: ./extension
+      run: npm ci
+    
+    - name: Lint extension
+      working-directory: ./extension
+      run: npm run lint
+    
+    - name: Build extension
+      working-directory: ./extension
+      run: npm run build
+    
+    - name: Test extension
+      working-directory: ./extension
+      run: npm test
+
+  integration-tests:
+    name: Integration Tests
+    needs: [test-core, test-extension]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: 'extension/package-lock.json'
+    
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: x86_64-unknown-linux-gnu
+        override: true
+    
+    - name: Rust cache
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: "core -> target"
+    
+    - name: Build core
+      working-directory: ./core
+      run: cargo build --release
+    
+    - name: Install extension dependencies
+      working-directory: ./extension
+      run: npm ci
+    
+    - name: Build extension
+      working-directory: ./extension
+      run: npm run build
+    
+    - name: Create bin directory
+      run: |
+        mkdir -p extension/bin/linux
+        cp core/target/release/smart-memory-mcp-core extension/bin/linux/
+        chmod +x extension/bin/linux/smart-memory-mcp-core
+    
+    - name: Run integration tests
+      working-directory: ./extension
+      run: npm run test:integration

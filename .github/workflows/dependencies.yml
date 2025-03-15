@@ -1,0 +1,54 @@
+name: Update Dependencies
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Run every Monday at midnight
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Update NPM dependencies
+      working-directory: ./extension
+      run: |
+        npm install -g npm-check-updates
+        ncu -u
+        npm install
+    
+    - name: Update Rust dependencies
+      working-directory: ./core
+      run: cargo update
+    
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'chore(deps): update dependencies'
+        title: 'chore(deps): update dependencies'
+        body: |
+          This PR updates project dependencies to their latest compatible versions.
+          
+          - NPM dependencies in extension/
+          - Rust dependencies in core/
+          
+          Please review the changes and test before merging.
+        branch: dependencies/update
+        base: main
+        labels: dependencies
+        draft: false
