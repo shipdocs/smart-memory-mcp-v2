@@ -1,0 +1,71 @@
+# Configuration for the GitHub Actions labeler
+# See: https://github.com/actions/labeler
+
+# Add 'core' label to any changes in the core directory
+core:
+  - core/**/*
+
+# Add 'extension' label to any changes in the extension directory
+extension:
+  - extension/**/*
+
+# Add 'documentation' label to any changes in the docs directory or markdown files
+documentation:
+  - docs/**/*
+  - '**/*.md'
+  - LICENSE*
+
+# Add 'github-actions' label to any changes in the .github directory
+github-actions:
+  - .github/**/*
+
+# Add 'dependencies' label to any changes in package.json, Cargo.toml, or lock files
+dependencies:
+  - '**/package.json'
+  - '**/package-lock.json'
+  - '**/Cargo.toml'
+  - '**/Cargo.lock'
+
+# Add 'tests' label to any changes in test files
+tests:
+  - '**/*test*/**/*'
+  - '**/*.test.*'
+  - '**/*.spec.*'
+
+# Add 'scripts' label to any changes in the scripts directory
+scripts:
+  - scripts/**/*
+
+# Add 'proto' label to any changes in the proto directory
+proto:
+  - proto/**/*
+  - '**/proto/**/*'
+
+# Add 'storage' label to any changes in the storage module
+storage:
+  - core/src/storage/**/*
+
+# Add 'service' label to any changes in the service module
+service:
+  - core/src/service/**/*
+
+# Add 'ui' label to any changes in the views directory
+ui:
+  - extension/src/views/**/*
+
+# Add 'config' label to any changes in configuration files
+config:
+  - '**/*.json'
+  - '**/*.yml'
+  - '**/*.yaml'
+  - '**/*.toml'
+  - .github/labeler.yml
+  - .github/workflows/*.yml
+
+# Add 'bug' label to any PR with 'bug' or 'fix' in the title
+bug:
+  - head-branch: ['*bug*', '*fix*']
+
+# Add 'enhancement' label to any PR with 'feature' or 'enhancement' in the title
+enhancement:
+  - head-branch: ['*feature*', '*enhancement*']

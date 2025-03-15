@@ -8,6 +8,7 @@ mod tokenizer;
 mod db;
 mod context;
 mod memory_bank_config;
+mod backup;
 
 pub use memory::{Memory, MemoryId, MemoryStore};
 pub use tokenizer::{Tokenizer, TokenCount, TokenizerType};
@@ -20,3 +21,4 @@ pub use memory_bank_config::{
     MemoryBankConfig, CategoryConfig, Priority, UpdateTriggersConfig,
     TokenBudgetConfig, RelevanceConfig
 };
+pub use backup::{BackupManager, BackupMetadata};

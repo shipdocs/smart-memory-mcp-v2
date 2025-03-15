@@ -186,8 +186,17 @@ impl MemoryStore {
     }
 
     /// Get the total number of tokens across all memories
-    pub fn total_tokens(&self) -> Result<TokenCount> {
+    pub fn get_total_tokens(&self) -> Result<TokenCount> {
         self.repository.total_tokens()
+    }
+    
+    /// Check if the connection to the repository is working
+    pub fn check_connection(&self) -> Result<bool> {
+        // For now, just check if we can get all IDs
+        match self.get_all_ids() {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
     }
 }
 

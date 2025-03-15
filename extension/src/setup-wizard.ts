@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { ServerDiscovery } from './server-discovery';
 import { ServerManager } from './server-manager';
+import * as setupScript from '../scripts/setup';
 
 /**
  * SetupWizard class provides a user-friendly setup experience
@@ -25,17 +26,24 @@ export class SetupWizard {
     try {
       // Show welcome message
       const welcomeMessage = 'Welcome to Smart Memory MCP Setup Wizard!';
-      const startOption = 'Start Setup';
+      const autoOption = 'Automatic Setup';
+      const manualOption = 'Manual Setup';
       const skipOption = 'Skip Setup';
       
       const startResult = await vscode.window.showInformationMessage(
         welcomeMessage,
-        startOption,
+        autoOption,
+        manualOption,
         skipOption
       );
       
-      if (startResult !== startOption) {
+      if (startResult === skipOption) {
         return false;
+      }
+      
+      // If automatic setup is selected, use our setup script
+      if (startResult === autoOption) {
+        return await this.runAutomaticSetup();
       }
 
       // Show progress notification
@@ -251,5 +259,56 @@ export class SetupWizard {
       vscode.window.showErrorMessage(`Setup failed: ${error}`);
       return false;
     }
+  }
+
+  /**
+   * Run the automatic setup process using the setup script
+   */
+  private async runAutomaticSetup(): Promise<boolean> {
+    return await vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: "Setting up Smart Memory MCP",
+      cancellable: true
+    }, async (progress, token) => {
+      try {
+        // Show progress notification
+        progress.report({ message: "Starting automatic setup...", increment: 10 });
+        if (token.isCancellationRequested) return false;
+        
+        // Run the setup script
+        progress.report({ message: "Installing and configuring Smart Memory MCP...", increment: 40 });
+        const success = await setupScript.setup();
+        
+        if (!success) {
+          vscode.window.showErrorMessage('Automatic setup failed. Please try manual setup or check the logs.');
+          return false;
+        }
+        
+        // Start the server if setup was successful
+        progress.report({ message: "Starting server...", increment: 40 });
+        if (token.isCancellationRequested) return false;
+        
+        const startServerOption = 'Start Server';
+        const skipStartOption = 'Skip';
+        
+        const startServerResult = await vscode.window.showInformationMessage(
+          'Setup completed successfully! Would you like to start the server now?',
+          startServerOption,
+          skipStartOption
+        );
+        
+        if (startServerResult === startServerOption && this.serverManager) {
+          await this.serverManager.startServer();
+        }
+        
+        // Setup complete
+        progress.report({ message: "Setup complete!", increment: 10 });
+        vscode.window.showInformationMessage('Smart Memory MCP setup completed successfully!');
+        return true;
+      } catch (error) {
+        vscode.window.showErrorMessage(`Automatic setup failed: ${error}`);
+        return false;
+      }
+    });
   }
 }

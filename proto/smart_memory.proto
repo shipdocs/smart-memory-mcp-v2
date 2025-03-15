@@ -2,6 +2,15 @@ syntax = "proto3";
 
 package smart_memory;
 
+// Health check service definition
+service HealthCheck {
+    // Check if the server is running
+    rpc Check (HealthCheckRequest) returns (HealthCheckResponse);
+    
+    // Get server version and status
+    rpc GetStatus (StatusRequest) returns (StatusResponse);
+}
+
 // Main MCP service definition
 service SmartMemoryMcp {
     // Memory management
@@ -278,4 +287,41 @@ message UmbCommandResponse {
     uint32 total_tokens = 3;
     repeated string categories = 4;
     string message = 5;
+}
+
+// Health check messages
+message HealthCheckRequest {
+    // Empty request
+}
+
+message HealthCheckResponse {
+    enum ServingStatus {
+        UNKNOWN = 0;
+        SERVING = 1;
+        NOT_SERVING = 2;
+        SERVICE_UNKNOWN = 3;
+    }
+    ServingStatus status = 1;
+    string message = 2;
+}
+
+message StatusRequest {
+    // Empty request
+}
+
+message StatusResponse {
+    string version = 1;
+    uint64 uptime_seconds = 2;
+    uint32 memory_usage_mb = 3;
+    uint32 total_memories = 4;
+    uint32 total_tokens = 5;
+    map<string, string> system_info = 6;
+    repeated ComponentStatus components = 7;
+}
+
+message ComponentStatus {
+    string name = 1;
+    string status = 2;
+    string version = 3;
+    uint64 last_updated = 4;
 }

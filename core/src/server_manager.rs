@@ -40,6 +40,12 @@ impl ServerManager {
             fs::create_dir_all(&smart_memory_dir)?;
         }
         
+        // Create backup directory if it doesn't exist
+        let backup_dir = smart_memory_dir.join("backups");
+        if !backup_dir.exists() {
+            fs::create_dir_all(&backup_dir)?;
+        }
+        
         // Get binary path from current executable
         let binary_path = env::current_exe()?;
         
@@ -60,6 +66,11 @@ impl ServerManager {
             db_path: smart_memory_dir.join("memories.db"),
             config_path,
         })
+    }
+    
+    /// Get the backup directory
+    pub fn get_backup_dir(&self) -> PathBuf {
+        self.db_path.parent().unwrap_or(Path::new(".")).join("backups")
     }
     
     /// Get port from config file
@@ -618,6 +629,105 @@ pub fn main() -> io::Result<()> {
             // Just return and let the process run
             Ok(())
         },
+        "backup" => {
+            // Create a backup of the database
+            let backup_dir = manager.get_backup_dir();
+            
+            // Check if the database exists
+            if !manager.db_path.exists() {
+                println!("Database file does not exist: {}", manager.db_path.display());
+                return Ok(());
+            }
+            
+            // Initialize backup manager
+            match crate::storage::BackupManager::new(&backup_dir) {
+                Ok(backup_manager) => {
+                    // Get description from args
+                    let description = args.get(2)
+                        .map(|s| s.as_str())
+                        .unwrap_or("Manual backup");
+                    
+                    // Create backup
+                    match backup_manager.create_backup(&manager.db_path, description) {
+                        Ok(backup_path) => {
+                            println!("Created backup: {}", backup_path.display());
+                        }
+                        Err(e) => {
+                            println!("Failed to create backup: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to initialize backup manager: {}", e);
+                }
+            }
+            
+            Ok(())
+        },
+        "restore" => {
+            // Restore a backup
+            let backup_dir = manager.get_backup_dir();
+            
+            // Initialize backup manager
+            match crate::storage::BackupManager::new(&backup_dir) {
+                Ok(backup_manager) => {
+                    // Check if server is running
+                    if let Some(pid) = manager.is_server_running() {
+                        println!("Server is running with PID {}. Please stop the server before restoring a backup.", pid);
+                        return Ok(());
+                    }
+                    
+                    // Get backup ID from args
+                    if let Some(backup_id) = args.get(2) {
+                        // Find backup with this ID
+                        let backup_path = backup_dir.join(format!("backup_{}.db", backup_id));
+                        if backup_path.exists() {
+                            // Restore backup
+                            match backup_manager.restore_backup(&backup_path, &manager.db_path) {
+                                Ok(()) => {
+                                    println!("Restored backup: {}", backup_path.display());
+                                }
+                                Err(e) => {
+                                    println!("Failed to restore backup: {}", e);
+                                }
+                            }
+                        } else {
+                            println!("Backup not found: {}", backup_path.display());
+                        }
+                    } else {
+                        // List available backups
+                        match backup_manager.list_backups() {
+                            Ok(backups) => {
+                                if backups.is_empty() {
+                                    println!("No backups found");
+                                } else {
+                                    println!("Available backups:");
+                                    for (path, metadata) in backups {
+                                        let timestamp = chrono::DateTime::<chrono::Utc>::from(
+                                            std::time::UNIX_EPOCH + std::time::Duration::from_secs(metadata.timestamp)
+                                        );
+                                        println!("  ID: {} - {} - {}",
+                                            path.file_stem().unwrap_or_default().to_string_lossy()
+                                                .strip_prefix("backup_").unwrap_or(""),
+                                            timestamp.format("%Y-%m-%d %H:%M:%S"),
+                                            metadata.description);
+                                    }
+                                    println!("\nTo restore a backup, use: smart-memory-mcp restore <ID>");
+                                }
+                            }
+                            Err(e) => {
+                                println!("Failed to list backups: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to initialize backup manager: {}", e);
+                }
+            }
+            
+            Ok(())
+        },
         "start" => {
             // Check if port is in use by another application
             let addr = format!("{}:{}", manager.host, manager.port);
@@ -723,7 +833,7 @@ pub fn integrate_server_manager() {
     // Check if this is a server manager command
     if args.len() > 1 {
         let command = &args[1];
-        if ["start", "stop", "restart", "status"].contains(&command.as_str()) {
+        if ["start", "stop", "restart", "status", "backup", "restore"].contains(&command.as_str()) {
             if let Err(err) = main() {
                 eprintln!("Server manager error: {}", err);
                 std::process::exit(1);

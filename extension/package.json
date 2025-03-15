@@ -63,6 +63,14 @@
       {
         "command": "smartMemory.restartServer",
         "title": "Smart Memory: Restart Server"
+      },
+      {
+        "command": "smartMemory.checkForUpdates",
+        "title": "Smart Memory: Check for Updates"
+      },
+      {
+        "command": "smartMemory.showVersion",
+        "title": "Smart Memory: Show Version"
       }
     ],
     "viewsContainers": {
@@ -170,6 +178,18 @@
     "google-protobuf": "^3.21.2",
     "grpc-web": "^1.4.2",
     "@grpc/grpc-js": "^1.8.0",
-    "@grpc/proto-loader": "^0.7.0"
+    "@grpc/proto-loader": "^0.7.0",
+    "semver": "^7.5.4"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "16.x",
+    "@types/semver": "^7.5.0",
+    "@types/vscode": "^1.80.0",
+    "@vscode/test-electron": "^2.3.4",
+    "glob": "^8.1.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.1.6"
   }
 }

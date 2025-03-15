@@ -8,6 +8,7 @@ import { ServerDiscovery } from './server-discovery';
 import { ServerManager } from './server-manager';
 import { SetupWizard } from './setup-wizard';
 import { setupExtension } from './setup';
+import { registerVersionCommands, initializeVersionChecking } from './version';
 
 // Create output channel for logging
 const outputChannel = vscode.window.createOutputChannel('Smart Memory MCP');
@@ -181,6 +182,10 @@ export async function activate(context: vscode.ExtensionContext) {
   log('Registering commands...');
   registerCommands(context, client, memoryExplorerProvider, memoryMetricsProvider, statusBarManager, serverManager);
   
+  // Register version commands
+  log('Registering version commands...');
+  registerVersionCommands(context);
+  
   // Register a command to run setup wizard
   context.subscriptions.push(
     vscode.commands.registerCommand('smartMemory.runSetup', async () => {
@@ -207,6 +212,10 @@ export async function activate(context: vscode.ExtensionContext) {
       clearInterval(serverCheckInterval);
     }
   });
+
+  // Initialize version checking
+  log('Initializing version checking...');
+  await initializeVersionChecking(context);
 
   log('Extension activation completed');
 }
@@ -235,6 +244,7 @@ export async function deactivate() {
         testSocket.once('error', (err: { code: string }) => {
           if (err.code === 'ECONNREFUSED') {
             // Port is free, which is good
+            log('Port 50051 is free, server successfully shut down');
             resolve(true);
           } else {
             reject(err);
@@ -244,6 +254,7 @@ export async function deactivate() {
         testSocket.once('connect', () => {
           // Port is still in use
           testSocket.end();
+          log('Port 50051 is still in use after server stop command, attempting forceful shutdown');
           
           // Try to forcefully kill the process using the port
           try {
@@ -256,11 +267,39 @@ export async function deactivate() {
               execSync(`lsof -i :50051 -t | xargs kill -9`);
             }
             log('Forcefully killed process using port 50051');
+            
+            // Run the cleanup script if available
+            try {
+              const path = require('path');
+              const fs = require('fs');
+              const cleanupScriptPath = path.join(__dirname, '..', 'scripts', process.platform === 'win32' ? 'cleanup.ps1' : 'cleanup.sh');
+              
+              if (fs.existsSync(cleanupScriptPath)) {
+                log(`Running cleanup script: ${cleanupScriptPath}`);
+                if (process.platform === 'win32') {
+                  execSync(`powershell -ExecutionPolicy Bypass -File "${cleanupScriptPath}" -kill`);
+                } else {
+                  execSync(`bash "${cleanupScriptPath}" --kill`);
+                }
+                log('Cleanup script executed successfully');
+              } else {
+                log('Cleanup script not found, skipping additional cleanup');
+              }
+            } catch (cleanupError) {
+              log(`Failed to run cleanup script: ${cleanupError}`);
+            }
           } catch (killError) {
             log(`Failed to forcefully kill process: ${killError}`);
           }
           
           resolve(false);
+        });
+        
+        // Set a timeout for the connection attempt
+        testSocket.setTimeout(2000, () => {
+          testSocket.destroy();
+          log('Connection attempt timed out, assuming server is not running');
+          resolve(true);
         });
         
         testSocket.connect(50051, 'localhost');
@@ -269,6 +308,27 @@ export async function deactivate() {
       log(`Error checking port: ${socketError}`);
     } finally {
       testSocket.destroy();
+    }
+    
+    // Store the VSCode process ID in the environment for parent process monitoring
+    // This will help the server detect when VSCode is closed
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const homeDir = require('os').homedir();
+      const smartMemoryDir = path.join(homeDir, '.smart-memory');
+      
+      // Create the directory if it doesn't exist
+      if (!fs.existsSync(smartMemoryDir)) {
+        fs.mkdirSync(smartMemoryDir, { recursive: true });
+      }
+      
+      // Write the VSCode PID to a file
+      const vscodePidFile = path.join(smartMemoryDir, 'vscode.pid');
+      fs.writeFileSync(vscodePidFile, process.pid.toString());
+      log(`Stored VSCode PID (${process.pid}) in ${vscodePidFile}`);
+    } catch (pidError) {
+      log(`Failed to store VSCode PID: ${pidError}`);
     }
   } catch (error) {
     log(`Failed to stop server during deactivation: ${error}`);

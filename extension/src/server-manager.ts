@@ -255,6 +255,47 @@ export class ServerManager {
       const outputChannel = vscode.window.createOutputChannel('Smart Memory MCP Server');
       outputChannel.show();
       
+      // First check if the server is already running
+      const isAlreadyRunning = await this.checkServerStatus();
+      if (isAlreadyRunning) {
+        outputChannel.appendLine('Server is already running');
+        this.isRunning = true;
+        this.statusBar.updateServerStatus(true);
+        vscode.window.showInformationMessage('Smart Memory MCP server is already running');
+        return true;
+      }
+      
+      // Check if port 50051 is in use by another process
+      const isPortInUse = await this.isPortInUse(50051);
+      if (isPortInUse) {
+        outputChannel.appendLine('Port 50051 is already in use by another process');
+        
+        // Ask the user if they want to kill the process using the port
+        const response = await vscode.window.showWarningMessage(
+          'Port 50051 is already in use. Would you like to kill the process using this port?',
+          'Yes', 'No'
+        );
+        
+        if (response === 'Yes') {
+          outputChannel.appendLine('Attempting to kill process using port 50051');
+          const killed = await this.killProcessUsingPort(50051);
+          
+          if (!killed) {
+            outputChannel.appendLine('Failed to kill process using port 50051');
+            vscode.window.showErrorMessage('Failed to kill process using port 50051. Please use the cleanup script to manually kill the process.');
+            return false;
+          }
+          
+          outputChannel.appendLine('Successfully killed process using port 50051');
+          // Wait a moment for the port to be released
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } else {
+          outputChannel.appendLine('User chose not to kill the process using port 50051');
+          vscode.window.showInformationMessage('Server start cancelled. Port 50051 is still in use.');
+          return false;
+        }
+      }
+      
       // Configure the MCP settings first
       await this.serverDiscovery.configureMcpSettings();
       

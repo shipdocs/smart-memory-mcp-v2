@@ -29,7 +29,7 @@ use crate::storage::{
 };
 
 pub struct SmartMemoryService {
-    memory_store: Arc<MemoryStore>,
+    pub memory_store: Arc<MemoryStore>,
     relevance_scorer: Arc<dyn RelevanceScorer>,
     context_optimizer: Arc<dyn ContextOptimizer>,
     memory_bank_config: MemoryBankConfig,
