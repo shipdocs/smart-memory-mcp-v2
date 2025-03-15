@@ -63,22 +63,27 @@ jobs:
       working-directory: ./extension
       run: npm test
 
-    - name: Prepare Artifacts
-      run: |
-        mkdir -p extension/bin/${{ matrix.platform }}
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp core/target/release/${{ matrix.binary_name }} extension/bin/${{ matrix.platform }}/
-        else
-          cp core/target/release/${{ matrix.binary_name }} extension/bin/${{ matrix.platform }}/
-          chmod +x extension/bin/${{ matrix.platform }}/${{ matrix.binary_name }}
-        fi
+    - name: Create Artifact Directories
       shell: bash
+      run: |
+        mkdir -p artifacts/bin/${{ matrix.platform }}
+        mkdir -p artifacts/vsix
+
+    - name: Copy Binary
+      shell: bash
+      run: |
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          cp core/target/release/${{ matrix.binary_name }} artifacts/bin/${{ matrix.platform }}/
+        else
+          cp core/target/release/${{ matrix.binary_name }} artifacts/bin/${{ matrix.platform }}/
+          chmod +x artifacts/bin/${{ matrix.platform }}/${{ matrix.binary_name }}
+        fi
 
     - name: Upload Binary
       uses: actions/upload-artifact@v3
       with:
         name: ${{ matrix.artifact_name }}
-        path: extension/bin/${{ matrix.platform }}/${{ matrix.binary_name }}
+        path: artifacts/bin/${{ matrix.platform }}/${{ matrix.binary_name }}
         if-no-files-found: error
 
     - name: Package Extension (Linux only)
@@ -86,15 +91,14 @@ jobs:
       working-directory: ./extension
       run: |
         npm run package
-        mkdir -p ../dist
-        cp *.vsix ../dist/
+        cp *.vsix ../artifacts/vsix/
 
     - name: Upload VSIX Package (Linux only)
       if: matrix.os == 'ubuntu-latest'
       uses: actions/upload-artifact@v3
       with:
         name: vsix-package
-        path: dist/*.vsix
+        path: artifacts/vsix/*.vsix
         if-no-files-found: error
 
   release:
@@ -106,23 +110,30 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Create Artifact Directories
+      run: |
+        mkdir -p artifacts/bin/linux
+        mkdir -p artifacts/bin/windows
+        mkdir -p artifacts/bin/macos
+        mkdir -p artifacts/vsix
+
     - name: Download Linux Binary
       uses: actions/download-artifact@v3
       with:
         name: smart-memory-mcp-linux
-        path: artifacts/linux
+        path: artifacts/bin/linux
 
     - name: Download Windows Binary
       uses: actions/download-artifact@v3
       with:
         name: smart-memory-mcp-windows
-        path: artifacts/windows
+        path: artifacts/bin/windows
 
     - name: Download macOS Binary
       uses: actions/download-artifact@v3
       with:
         name: smart-memory-mcp-macos
-        path: artifacts/macos
+        path: artifacts/bin/macos
 
     - name: Download VSIX Package
       uses: actions/download-artifact@v3
@@ -135,9 +146,9 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          artifacts/linux/smart-memory-mcp-core
-          artifacts/windows/smart-memory-mcp-core.exe
-          artifacts/macos/smart-memory-mcp-core
+          artifacts/bin/linux/smart-memory-mcp-core
+          artifacts/bin/windows/smart-memory-mcp-core.exe
+          artifacts/bin/macos/smart-memory-mcp-core
           artifacts/vsix/*.vsix
         draft: false
         prerelease: false
