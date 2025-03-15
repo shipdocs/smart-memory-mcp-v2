@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Server manager for Smart Memory MCP
 /// 
@@ -87,11 +89,13 @@ impl ServerManager {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
                     // Check if process is running
                     if Self::is_process_running(pid) {
-                        return Some(pid);
-                    } else {
-                        // Clean up stale PID file
-                        let _ = fs::remove_file(&self.pid_file);
+                        // Verify this process is actually our server by checking if it's listening on our port
+                        if self.is_process_listening_on_port(pid) {
+                            return Some(pid);
+                        }
                     }
+                    // Clean up stale PID file if process is not running or not listening on our port
+                    let _ = self.cleanup_pid_file();
                 }
             }
         }
@@ -104,6 +108,50 @@ impl ServerManager {
         }
         
         None
+    }
+    
+    /// Check if a process is listening on our port
+    fn is_process_listening_on_port(&self, pid: u32) -> bool {
+        #[cfg(unix)]
+        {
+            // Use lsof to check if the process is listening on our port
+            let output = Command::new("lsof")
+                .args(&["-i", &format!(":{}", self.port), "-a", "-p", &pid.to_string()])
+                .output();
+                
+            match output {
+                Ok(output) => output.status.success() && !output.stdout.is_empty(),
+                Err(_) => false
+            }
+        }
+        
+        #[cfg(windows)]
+        {
+            // Use netstat to check if the process is listening on our port
+            let output = Command::new("netstat")
+                .args(&["-ano", "-p", "TCP"])
+                .output();
+                
+            match output {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    stdout.lines().any(|line| {
+                        line.contains(&format!(":{}", self.port)) &&
+                        line.contains("LISTENING") &&
+                        line.split_whitespace().last().map_or(false, |s| s == pid.to_string())
+                    })
+                },
+                Err(_) => false
+            }
+        }
+    }
+    
+    /// Clean up the PID file
+    pub fn cleanup_pid_file(&self) -> io::Result<()> {
+        if self.pid_file.exists() {
+            fs::remove_file(&self.pid_file)?;
+        }
+        Ok(())
     }
     
     /// Test if server is responsive
@@ -120,6 +168,29 @@ impl ServerManager {
     
     /// Start the server
     pub fn start_server(&self) -> io::Result<u32> {
+        // Check if server is already running
+        if let Some(pid) = self.is_server_running() {
+            println!("Server is already running with PID {}", pid);
+            return Ok(pid);
+        }
+        
+        // Check if port is in use by another process
+        let addr = format!("{}:{}", self.host, self.port);
+        if let Ok(addr) = addr.parse::<SocketAddr>() {
+            match TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
+                Ok(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::AddrInUse,
+                        format!("Port {} is already in use by another process", self.port)
+                    ));
+                },
+                Err(e) if e.kind() != io::ErrorKind::ConnectionRefused => {
+                    return Err(e);
+                },
+                _ => {}
+            }
+        }
+        
         // Ensure log directory exists
         if let Some(log_dir) = self.log_file.parent() {
             fs::create_dir_all(log_dir)?;
@@ -130,6 +201,18 @@ impl ServerManager {
         
         // Start the server process
         let mut command = Command::new(&self.binary_path);
+        
+        // Pass VS Code PID for Windows parent process monitoring
+        if cfg!(windows) {
+            if let Ok(vscode_pid) = env::var("VSCODE_PID") {
+                command.env("VSCODE_PID", vscode_pid);
+            } else {
+                // Try to find VS Code process
+                if let Some(vscode_pid) = self.find_vscode_process() {
+                    command.env("VSCODE_PID", vscode_pid.to_string());
+                }
+            }
+        }
         
         command
             .env("RUST_LOG", "info")
@@ -152,20 +235,109 @@ impl ServerManager {
         // Wait a bit to ensure the server started
         thread::sleep(Duration::from_millis(500));
         
-        Ok(pid)
+        // Verify the server is actually running
+        if !Self::is_process_running(pid) {
+            // Clean up PID file
+            let _ = self.cleanup_pid_file();
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Server process failed to start"
+            ));
+        }
+        
+        // Verify the server is listening on the port
+        let mut retries = 5;
+        while retries > 0 {
+            if self.test_server_connection() {
+                return Ok(pid);
+            }
+            thread::sleep(Duration::from_millis(500));
+            retries -= 1;
+        }
+        
+        // If we get here, the server is running but not listening on the port
+        if Self::kill_process(pid) {
+            let _ = self.cleanup_pid_file();
+        }
+        
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Server started but failed to listen on the port"
+        ))
     }
     
     /// Stop the server
     pub fn stop_server(&self, pid: u32) -> bool {
         if Self::kill_process(pid) {
             // Clean up PID file
-            if self.pid_file.exists() {
-                let _ = fs::remove_file(&self.pid_file);
+            let _ = self.cleanup_pid_file();
+            
+            // Wait for the port to be released
+            let mut retries = 5;
+            while retries > 0 {
+                let addr = format!("{}:{}", self.host, self.port);
+                if let Ok(addr) = addr.parse::<SocketAddr>() {
+                    match TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
+                        Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => return true,
+                        _ => {
+                            thread::sleep(Duration::from_millis(500));
+                            retries -= 1;
+                        }
+                    }
+                } else {
+                    return true;
+                }
             }
+            
             true
         } else {
             false
         }
+    }
+    
+    /// Find VS Code process ID
+    #[cfg(windows)]
+    fn find_vscode_process(&self) -> Option<u32> {
+        let output = Command::new("tasklist")
+            .args(&["/FI", "IMAGENAME eq Code.exe", "/NH", "/FO", "CSV"])
+            .output()
+            .ok()?;
+            
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() >= 2 {
+                if let Some(pid_str) = parts[1].strip_prefix("\"").and_then(|s| s.strip_suffix("\"")) {
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        return Some(pid);
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+    
+    #[cfg(unix)]
+    fn find_vscode_process(&self) -> Option<u32> {
+        let output = Command::new("ps")
+            .args(&["-e", "-o", "pid,comm"])
+            .output()
+            .ok()?;
+            
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.contains("code") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if let Ok(pid) = parts[0].parse::<u32>() {
+                        return Some(pid);
+                    }
+                }
+            }
+        }
+        
+        None
     }
     
     /// Restart the server
@@ -296,6 +468,124 @@ impl ServerManager {
     }
 }
 
+/// Global shutdown flag
+static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Register signal handlers for clean shutdown
+pub fn register_signal_handlers() {
+    // Register signal handlers for clean shutdown
+    #[cfg(unix)]
+    {
+        use signal_hook::consts::{SIGINT, SIGTERM};
+        use signal_hook::iterator::Signals;
+        
+        // Handle SIGTERM and SIGINT
+        let mut signals = Signals::new(&[SIGTERM, SIGINT]).expect("Failed to register signal handlers");
+        
+        thread::spawn(move || {
+            for sig in signals.forever() {
+                println!("Received signal {:?}, initiating shutdown...", sig);
+                SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+                
+                // Clean up resources
+                if let Ok(manager) = ServerManager::new() {
+                    if let Some(pid) = manager.is_server_running() {
+                        if manager.stop_server(pid) {
+                            println!("Successfully stopped server with PID {}", pid);
+                        }
+                    }
+                    
+                    // Remove PID file
+                    if let Err(e) = manager.cleanup_pid_file() {
+                        eprintln!("Error cleaning up PID file: {}", e);
+                    }
+                }
+                
+                // Exit the process
+                std::process::exit(0);
+            }
+        });
+    }
+    
+    // For Windows, we'll use a different approach with the shutdown handler process
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use winapi::um::consoleapi::SetConsoleCtrlHandler;
+        use winapi::um::wincon::CTRL_CLOSE_EVENT;
+        
+        unsafe {
+            // Define the handler function
+            extern "system" fn handler(_: u32) -> i32 {
+                println!("Received shutdown signal, initiating shutdown...");
+                SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+                
+                // Clean up resources
+                if let Ok(manager) = ServerManager::new() {
+                    if let Some(pid) = manager.is_server_running() {
+                        if manager.stop_server(pid) {
+                            println!("Successfully stopped server with PID {}", pid);
+                        }
+                    }
+                    
+                    // Remove PID file
+                    if let Err(e) = manager.cleanup_pid_file() {
+                        eprintln!("Error cleaning up PID file: {}", e);
+                    }
+                }
+                
+                // Return true to indicate we've handled the event
+                1
+            }
+            
+            // Register the handler
+            SetConsoleCtrlHandler(Some(handler), 1);
+        }
+        
+        // Also check for parent process termination
+        if let Ok(parent_pid_str) = env::var("VSCODE_PID") {
+            if let Ok(parent_pid) = parent_pid_str.parse::<u32>() {
+                println!("Monitoring parent process PID: {}", parent_pid);
+                
+                // Spawn a thread to monitor the parent process
+                thread::spawn(move || {
+                    loop {
+                        thread::sleep(Duration::from_secs(5));
+                        
+                        // Check if parent process is still running
+                        if !ServerManager::is_process_running(parent_pid) {
+                            println!("Parent process terminated, initiating shutdown...");
+                            SHUTDOWN_REQUESTED.store(true, Ordering::SeqCst);
+                            
+                            // Clean up resources
+                            if let Ok(manager) = ServerManager::new() {
+                                if let Some(server_pid) = manager.is_server_running() {
+                                    if manager.stop_server(server_pid) {
+                                        println!("Successfully stopped server with PID {}", server_pid);
+                                    }
+                                }
+                                
+                                // Remove PID file
+                                if let Err(e) = manager.cleanup_pid_file() {
+                                    eprintln!("Error cleaning up PID file: {}", e);
+                                }
+                            }
+                            
+                            // Exit the process
+                            std::process::exit(0);
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+/// Check if shutdown has been requested
+pub fn is_shutdown_requested() -> bool {
+    SHUTDOWN_REQUESTED.load(Ordering::SeqCst)
+}
+
 /// Main entry point for the server manager
 pub fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -305,25 +595,70 @@ pub fn main() -> io::Result<()> {
     
     match command {
         "--daemon" => {
-            // This is a daemon process, just return
+            // This is a daemon process, register signal handlers for clean shutdown
+            register_signal_handlers();
+            
+            // Create a PID file if it doesn't exist
+            if !manager.pid_file.exists() {
+                let pid = std::process::id();
+                fs::write(&manager.pid_file, pid.to_string())?;
+                println!("Created PID file with PID {}", pid);
+            }
+            
+            // Log startup information
+            println!("Smart Memory MCP server started in daemon mode");
+            println!("PID: {}", std::process::id());
+            println!("Port: {}", manager.port);
+            println!("Host: {}", manager.host);
+            println!("DB Path: {}", manager.db_path.display());
+            println!("Config Path: {}", manager.config_path.display());
+            println!("Log File: {}", manager.log_file.display());
+            println!("PID File: {}", manager.pid_file.display());
+            
+            // Just return and let the process run
             Ok(())
         },
         "start" => {
-            if let Some(pid) = manager.is_server_running() {
-                println!("Server is already running with PID {}", pid);
-                
-                // Test if it's responsive
-                if !manager.test_server_connection() {
-                    println!("Server is not responsive, restarting...");
-                    manager.stop_server(pid);
-                    thread::sleep(Duration::from_secs(1));
-                    let new_pid = manager.start_server()?;
-                    println!("Started server with PID {}", new_pid);
+            // Check if port is in use by another application
+            let addr = format!("{}:{}", manager.host, manager.port);
+            if let Ok(addr) = addr.parse::<SocketAddr>() {
+                match TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
+                    Ok(_) => {
+                        // Port is in use, check if it's our server
+                        if let Some(pid) = manager.is_server_running() {
+                            println!("Server is already running with PID {}", pid);
+                            
+                            // Test if it's responsive
+                            if !manager.test_server_connection() {
+                                println!("Server is not responsive, restarting...");
+                                manager.stop_server(pid);
+                                thread::sleep(Duration::from_secs(1));
+                                let new_pid = manager.start_server()?;
+                                println!("Started server with PID {}", new_pid);
+                            }
+                        } else {
+                            // Port is in use by another application
+                            return Err(io::Error::new(
+                                io::ErrorKind::AddrInUse,
+                                format!("Port {} is already in use by another application", manager.port)
+                            ));
+                        }
+                    },
+                    Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => {
+                        // Port is not in use, start the server
+                        let pid = manager.start_server()?;
+                        println!("Started server with PID {}", pid);
+                    },
+                    Err(e) => return Err(e),
                 }
             } else {
-                let pid = manager.start_server()?;
-                println!("Started server with PID {}", pid);
+                // Invalid address
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Invalid address: {}", addr)
+                ));
             }
+            
             Ok(())
         },
         "stop" => {
@@ -339,8 +674,33 @@ pub fn main() -> io::Result<()> {
             Ok(())
         },
         "restart" => {
-            let pid = manager.restart_server()?;
-            println!("Restarted server with PID {}", pid);
+            if let Some(pid) = manager.is_server_running() {
+                println!("Stopping server with PID {}", pid);
+                if !manager.stop_server(pid) {
+                    println!("Warning: Failed to stop server cleanly, forcing restart");
+                }
+                
+                // Wait for the server to stop and port to be released
+                let mut retries = 10;
+                while retries > 0 {
+                    let addr = format!("{}:{}", manager.host, manager.port);
+                    if let Ok(addr) = addr.parse::<SocketAddr>() {
+                        match TcpStream::connect_timeout(&addr, Duration::from_millis(100)) {
+                            Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => break,
+                            _ => {
+                                thread::sleep(Duration::from_millis(500));
+                                retries -= 1;
+                            }
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+            
+            // Start a new server
+            let pid = manager.start_server()?;
+            println!("Started server with PID {}", pid);
             Ok(())
         },
         "status" | _ => {

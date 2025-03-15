@@ -25,10 +25,12 @@ export class MemoryMetricsProvider implements vscode.TreeDataProvider<MetricItem
   private _onDidChangeTreeData: vscode.EventEmitter<MetricItem | undefined | null | void> = new vscode.EventEmitter<MetricItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<MetricItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
-  // Mock metrics data
+  // Metrics data
   private metrics: Metric[] = [];
   private usageStats: UsageStats | null = null;
   private trends: Trend[] = [];
+  private isLoading: boolean = false;
+  private lastError: string | null = null;
 
   constructor(private client: McpClient) {
     this.fetchMetrics();
@@ -40,15 +42,37 @@ export class MemoryMetricsProvider implements vscode.TreeDataProvider<MetricItem
   }
 
   private async fetchMetrics(): Promise<void> {
+    this.isLoading = true;
+    this.lastError = null;
+    this._onDidChangeTreeData.fire();
+    
     try {
-      // In a real implementation, we would fetch metrics from the server
-      // For now, we'll use the mock implementation in the client
+      // Check if the client is connected to the server
+      const isConnected = await this.client.testConnection().catch(() => false);
+      
+      if (!isConnected) {
+        this.lastError = "Not connected to Smart Memory MCP server";
+        this.isLoading = false;
+        this._onDidChangeTreeData.fire();
+        return;
+      }
+      
+      // Fetch metrics from the server
       const result = await this.client.getMetrics(7);
       this.metrics = result.metrics;
       this.usageStats = result.usage;
       this.trends = result.trends;
-    } catch (error) {
+      
+      // If we have no metrics, show a message
+      if (!this.metrics.length && !this.usageStats && !this.trends.length) {
+        this.lastError = "No metrics available. Try using the memory bank first.";
+      }
+    } catch (error: any) {
       console.error('Failed to fetch metrics:', error);
+      this.lastError = `Error: ${error.message || 'Unknown error'}`;
+    } finally {
+      this.isLoading = false;
+      this._onDidChangeTreeData.fire();
     }
   }
 
@@ -57,7 +81,43 @@ export class MemoryMetricsProvider implements vscode.TreeDataProvider<MetricItem
   }
 
   async getChildren(element?: MetricItem): Promise<MetricItem[]> {
+    // If we're loading, show a loading indicator
+    if (this.isLoading && !element) {
+      return [
+        new MetricItem(
+          'Loading...',
+          vscode.TreeItemCollapsibleState.None,
+          'loading',
+          'Fetching metrics from the server'
+        )
+      ];
+    }
+    
+    // If we have an error, show it
+    if (this.lastError && !element) {
+      return [
+        new MetricItem(
+          this.lastError,
+          vscode.TreeItemCollapsibleState.None,
+          'error',
+          'Error fetching metrics'
+        )
+      ];
+    }
+    
     if (!element) {
+      // If we have no metrics, show a message
+      if (!this.metrics.length && !this.usageStats && !this.trends.length) {
+        return [
+          new MetricItem(
+            'No metrics available',
+            vscode.TreeItemCollapsibleState.None,
+            'empty',
+            'Try using the memory bank first'
+          )
+        ];
+      }
+      
       // Root level - return metrics categories
       return [
         new MetricItem(
@@ -206,6 +266,12 @@ export class MetricItem extends vscode.TreeItem {
       this.iconPath = new vscode.ThemeIcon('dashboard');
     } else if (contextValue === 'trend') {
       this.iconPath = new vscode.ThemeIcon('graph');
+    } else if (contextValue === 'loading') {
+      this.iconPath = new vscode.ThemeIcon('loading~spin');
+    } else if (contextValue === 'error') {
+      this.iconPath = new vscode.ThemeIcon('error');
+    } else if (contextValue === 'empty') {
+      this.iconPath = new vscode.ThemeIcon('info');
     } else {
       this.iconPath = new vscode.ThemeIcon('graph');
     }

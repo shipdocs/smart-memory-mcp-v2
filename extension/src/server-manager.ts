@@ -141,7 +141,7 @@ export class ServerManager {
   /**
    * Check if a port is in use
    */
-  private async isPortInUse(port: number): Promise<boolean> {
+  async isPortInUse(port: number): Promise<boolean> {
     return new Promise((resolve) => {
       const net = require('net');
       const tester = net.createServer()
@@ -159,6 +159,66 @@ export class ServerManager {
         })
         .listen(port);
     });
+  }
+
+  /**
+   * Kill a process using a specific port
+   */
+  async killProcessUsingPort(port: number): Promise<boolean> {
+    try {
+      const platform = require('os').platform();
+      let cmd;
+      let pid;
+      
+      if (platform === 'win32') {
+        // Windows: use netstat to find the process
+        const { execSync } = require('child_process');
+        const output = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { encoding: 'utf8' });
+        
+        if (output) {
+          // Parse the output to get the PID
+          const lines = output.split('\n');
+          for (const line of lines) {
+            if (line.trim()) {
+              const parts = line.trim().split(/\s+/);
+              pid = parseInt(parts[parts.length - 1]);
+              break;
+            }
+          }
+        }
+        
+        if (pid) {
+          // Kill the process
+          execSync(`taskkill /F /PID ${pid}`);
+          console.log(`Killed process with PID ${pid} using port ${port}`);
+          return true;
+        }
+      } else {
+        // Unix-like systems: use lsof to find the process
+        const { execSync } = require('child_process');
+        try {
+          const output = execSync(`lsof -i :${port} -t`, { encoding: 'utf8' });
+          
+          if (output) {
+            pid = parseInt(output.trim());
+            
+            if (pid) {
+              // Kill the process
+              execSync(`kill -9 ${pid}`);
+              console.log(`Killed process with PID ${pid} using port ${port}`);
+              return true;
+            }
+          }
+        } catch (error) {
+          console.error(`Error finding process using port ${port}: ${error}`);
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`Error killing process using port ${port}: ${error}`);
+      return false;
+    }
   }
 
   /**
@@ -248,6 +308,13 @@ export class ServerManager {
       const outputChannel = vscode.window.createOutputChannel('Smart Memory MCP Server');
       outputChannel.show();
       
+      // Check if the server is running
+      const isRunning = await this.checkServerStatus();
+      if (!isRunning) {
+        outputChannel.appendLine('Server is not running, nothing to stop');
+        return true;
+      }
+      
       // Use the server manager script
       const scriptPath = path.join(this.context.extensionPath, 'scripts', 'smart-memory-mcp-server-manager.js');
       outputChannel.appendLine(`Using server manager script: ${scriptPath}`);
@@ -270,6 +337,25 @@ export class ServerManager {
         outputChannel.appendLine(result.stderr);
       }
       
+      // Verify the server has stopped by checking the port
+      let retries = 5;
+      while (retries > 0) {
+        const isPortStillInUse = await this.isPortInUse(50051);
+        if (!isPortStillInUse) {
+          break;
+        }
+        
+        // Wait a bit and try again
+        await new Promise(resolve => setTimeout(resolve, 500));
+        retries--;
+      }
+      
+      // If the port is still in use, try to forcefully kill the process
+      if (await this.isPortInUse(50051)) {
+        outputChannel.appendLine('Port 50051 is still in use, attempting to forcefully kill the process');
+        await this.killProcessUsingPort(50051);
+      }
+      
       this.serverProcess = null;
       this.isRunning = false;
       this.statusBar.updateServerStatus(false);
@@ -278,7 +364,18 @@ export class ServerManager {
     } catch (error) {
       console.error('Failed to stop server:', error);
       vscode.window.showErrorMessage(`Failed to stop Smart Memory MCP server: ${error}`);
-      return false;
+      
+      // Even if we failed to stop the server gracefully, try to kill the process
+      try {
+        await this.killProcessUsingPort(50051);
+        this.serverProcess = null;
+        this.isRunning = false;
+        this.statusBar.updateServerStatus(false);
+        return true;
+      } catch (killError) {
+        console.error('Failed to forcefully kill server process:', killError);
+        return false;
+      }
     }
   }
 

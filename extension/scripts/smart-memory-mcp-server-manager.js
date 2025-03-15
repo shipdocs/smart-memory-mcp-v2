@@ -188,30 +188,89 @@ function testServerConnection(port = DEFAULT_PORT) {
 // Kill the server process
 function killServer(pid) {
   try {
+    // First try to terminate gracefully
     process.kill(pid, 'SIGTERM');
     console.log(`Terminated server process with PID ${pid}`);
     
     // Wait a bit and check if it's really dead
-    setTimeout(() => {
-      try {
-        process.kill(pid, 0);
-        // If we get here, process is still running, force kill
-        console.log(`Process ${pid} still running, force killing...`);
-        process.kill(pid, 'SIGKILL');
-      } catch (e) {
-        // Process is dead, which is what we want
-      }
-    }, 1000);
-    
-    // Clean up PID file
-    if (fs.existsSync(PID_FILE)) {
-      fs.unlinkSync(PID_FILE);
-    }
-    
-    return true;
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        try {
+          process.kill(pid, 0);
+          // If we get here, process is still running, force kill
+          console.log(`Process ${pid} still running, force killing...`);
+          
+          try {
+            // Force kill the process
+            if (os.platform() === 'win32') {
+              execSync(`taskkill /F /PID ${pid}`);
+            } else {
+              process.kill(pid, 'SIGKILL');
+            }
+            
+            // Wait a bit more to ensure it's really dead
+            setTimeout(() => {
+              try {
+                process.kill(pid, 0);
+                console.error(`Failed to kill process ${pid} even with SIGKILL`);
+                resolve(false);
+              } catch (e) {
+                // Process is dead, which is what we want
+                console.log(`Successfully killed process ${pid}`);
+                
+                // Clean up PID file
+                if (fs.existsSync(PID_FILE)) {
+                  fs.unlinkSync(PID_FILE);
+                }
+                
+                // Also check if port is still in use
+                const port = getServerPort();
+                const server = net.createServer();
+                server.once('error', () => {
+                  // Port is still in use, try to kill the process using the port
+                  console.log(`Port ${port} is still in use, attempting to kill the process using it`);
+                  try {
+                    if (os.platform() === 'win32') {
+                      execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :${port} ^| findstr LISTENING') do taskkill /F /PID %a`);
+                    } else {
+                      execSync(`lsof -i :${port} -t | xargs kill -9`);
+                    }
+                  } catch (portError) {
+                    console.error(`Error killing process using port ${port}: ${portError.message}`);
+                  }
+                  resolve(true);
+                });
+                
+                server.once('listening', () => {
+                  // Port is free
+                  server.close(() => {
+                    resolve(true);
+                  });
+                });
+                
+                server.listen(port, DEFAULT_HOST);
+              }
+            }, 1000);
+          } catch (killError) {
+            console.error(`Error force killing process ${pid}: ${killError.message}`);
+            resolve(false);
+          }
+        } catch (e) {
+          // Process is already dead, which is what we want
+          console.log(`Process ${pid} successfully terminated`);
+          
+          // Clean up PID file
+          if (fs.existsSync(PID_FILE)) {
+            fs.unlinkSync(PID_FILE);
+          }
+          
+          resolve(true);
+        }
+      }, 1000);
+    });
   } catch (err) {
     console.error(`Error killing process ${pid}: ${err.message}`);
-    return false;
+    return Promise.resolve(false);
   }
 }
 
@@ -232,13 +291,97 @@ function startServer() {
   // Open log file
   const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
   
+  // Add a shutdown handler script to ensure clean shutdown
+  const shutdownHandlerPath = path.join(os.tmpdir(), 'smart-memory-shutdown-handler.js');
+  const shutdownHandlerContent = `
+    const fs = require('fs');
+    const path = require('path');
+    const os = require('os');
+    const { execSync } = require('child_process');
+    
+    // Configuration
+    const PID_FILE = path.join(os.homedir(), '.smart-memory', 'server.pid');
+    
+    // Function to handle shutdown
+    function handleShutdown() {
+      try {
+        if (fs.existsSync(PID_FILE)) {
+          const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim());
+          
+          // Try to kill the process
+          try {
+            if (process.platform === 'win32') {
+              execSync(\`taskkill /F /PID \${pid}\`);
+            } else {
+              execSync(\`kill -15 \${pid}\`);
+              // Wait a bit and check if it's still running
+              setTimeout(() => {
+                try {
+                  process.kill(pid, 0);
+                  // Process is still running, force kill
+                  execSync(\`kill -9 \${pid}\`);
+                } catch (e) {
+                  // Process is already dead, which is good
+                }
+              }, 1000);
+            }
+            
+            // Remove PID file
+            fs.unlinkSync(PID_FILE);
+            console.log(\`Shutdown handler: Killed process with PID \${pid}\`);
+          } catch (err) {
+            console.error(\`Shutdown handler: Error killing process \${pid}: \${err.message}\`);
+          }
+        }
+      } catch (err) {
+        console.error(\`Shutdown handler: Error: \${err.message}\`);
+      }
+    }
+    
+    // Register process exit handlers
+    process.on('exit', handleShutdown);
+    process.on('SIGINT', () => {
+      handleShutdown();
+      process.exit(0);
+    });
+    process.on('SIGTERM', () => {
+      handleShutdown();
+      process.exit(0);
+    });
+    
+    // Keep the process alive
+    setInterval(() => {
+      // Check if parent process is still running
+      try {
+        process.kill(process.ppid, 0);
+      } catch (e) {
+        // Parent process is gone, clean up and exit
+        handleShutdown();
+        process.exit(0);
+      }
+    }, 5000);
+  `;
+  
+  // Write the shutdown handler script
+  fs.writeFileSync(shutdownHandlerPath, shutdownHandlerContent);
+  
+  // Start the shutdown handler process
+  const shutdownHandler = spawn('node', [shutdownHandlerPath], {
+    detached: true,
+    stdio: 'ignore'
+  });
+  
+  // Unref the shutdown handler to allow it to run independently
+  shutdownHandler.unref();
+  
   // Start the server process
   const serverProcess = spawn(binaryPath, [], {
     env: {
       ...process.env,
       RUST_LOG: 'info',
       DB_PATH: DB_PATH,
-      CONFIG_PATH: CONFIG_PATH
+      CONFIG_PATH: CONFIG_PATH,
+      SHUTDOWN_HANDLER_PID: shutdownHandler.pid.toString() // Pass the shutdown handler PID to the server
     },
     detached: true, // Run in the background
     stdio: ['ignore', logStream, logStream]
@@ -250,7 +393,7 @@ function startServer() {
   // Unref the process to allow the script to exit
   serverProcess.unref();
   
-  console.log(`Started server with PID ${serverProcess.pid}`);
+  console.log(`Started server with PID ${serverProcess.pid} and shutdown handler PID ${shutdownHandler.pid}`);
   return serverProcess.pid;
 }
 
@@ -269,10 +412,8 @@ async function main() {
         const responsive = await testServerConnection(port);
         if (!responsive) {
           console.log('Server is not responsive, restarting...');
-          killServer(runningPid);
-          setTimeout(() => {
-            startServer();
-          }, 1000);
+          await killServer(runningPid);
+          startServer();
         }
       } else {
         startServer();
@@ -283,7 +424,25 @@ async function main() {
     case 'stop': {
       const runningPid = isServerRunning();
       if (runningPid) {
-        killServer(runningPid);
+        const success = await killServer(runningPid);
+        if (success) {
+          console.log(`Successfully stopped server with PID ${runningPid}`);
+        } else {
+          console.error(`Failed to stop server with PID ${runningPid}`);
+          
+          // Try to kill any process using the port as a last resort
+          const port = getServerPort();
+          try {
+            if (os.platform() === 'win32') {
+              execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :${port} ^| findstr LISTENING') do taskkill /F /PID %a`);
+            } else {
+              execSync(`lsof -i :${port} -t | xargs kill -9`);
+            }
+            console.log(`Forcefully killed process using port ${port}`);
+          } catch (portError) {
+            console.error(`Error killing process using port ${port}: ${portError.message}`);
+          }
+        }
       } else {
         console.log('Server is not running');
       }
@@ -293,10 +452,39 @@ async function main() {
     case 'restart': {
       const runningPid = isServerRunning();
       if (runningPid) {
-        killServer(runningPid);
-        setTimeout(() => {
-          startServer();
-        }, 1000);
+        console.log(`Stopping server with PID ${runningPid}`);
+        await killServer(runningPid);
+        
+        // Check if port is free before starting
+        const port = getServerPort();
+        const isPortFree = await new Promise((resolve) => {
+          const server = net.createServer();
+          server.once('error', () => {
+            server.close();
+            resolve(false);
+          });
+          server.once('listening', () => {
+            server.close();
+            resolve(true);
+          });
+          server.listen(port, DEFAULT_HOST);
+        });
+        
+        if (!isPortFree) {
+          console.log(`Port ${port} is still in use, attempting to forcefully free it`);
+          try {
+            if (os.platform() === 'win32') {
+              execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :${port} ^| findstr LISTENING') do taskkill /F /PID %a`);
+            } else {
+              execSync(`lsof -i :${port} -t | xargs kill -9`);
+            }
+            console.log(`Forcefully killed process using port ${port}`);
+          } catch (portError) {
+            console.error(`Error killing process using port ${port}: ${portError.message}`);
+          }
+        }
+        
+        startServer();
       } else {
         startServer();
       }

@@ -66,7 +66,7 @@ instructions:
     - "     - Present relevant implementation tasks or ask: 'Is there anything else I can help you with?'"
     - "  2. NEVER update Memory Bank automatically unless 'UMB' is used."
   memory_bank:
-    - "Status Prefix: Begin EVERY response with either '[MEMORY BANK: ACTIVE]' or '[MEMORY BANK: INACTIVE]'"
+    - "Status Prefix: Begin EVERY response with either '[SMART MEMORY BANK: ACTIVE]' or '[SMART MEMORY BANK: INACTIVE]'"
     - "Smart Features: Enabled"
     - "Session-Based Daily Mode:"
     - "  - Session persists until 'Reset Daily Context' or inactivity >6 hours."

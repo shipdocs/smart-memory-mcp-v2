@@ -57,15 +57,56 @@ export async function activate(context: vscode.ExtensionContext) {
   const isServerRunning = await serverManager.checkServerStatus();
   log(`Server status check - running: ${isServerRunning}`);
   
-  // Auto-start the server if configured
-  const autoStartServer = vscode.workspace.getConfiguration('smartMemory').get<boolean>('autoStartServer');
-  if (autoStartServer && !isServerRunning) {
+  // Check if port is in use but not by our server
+  const isPortInUse = await serverManager.isPortInUse(50051);
+  
+  if (isPortInUse && !isServerRunning) {
+    // Port is in use but not by our server - try to connect to it
+    log('Port 50051 is in use but not by our server, attempting to connect...');
     try {
-      log('Auto-starting server...');
-      await serverManager.startServer();
+      await client.testConnection();
+      log('Successfully connected to existing Smart Memory MCP server');
+      vscode.window.showInformationMessage('Connected to existing Smart Memory MCP server');
+      statusBarManager.updateServerStatus(true);
     } catch (error) {
-      log(`Failed to auto-start server: ${error}`);
-      vscode.window.showErrorMessage(`Failed to auto-start server: ${error}`);
+      // Cannot connect to the server on the port
+      log(`Failed to connect to existing server: ${error}`);
+      
+      // Ask user if they want to kill the process using the port and start a new server
+      const killOption = 'Kill Process & Start Server';
+      const ignoreOption = 'Ignore';
+      const result = await vscode.window.showErrorMessage(
+        'Port 50051 is in use but not by a responsive Smart Memory MCP server.',
+        killOption,
+        ignoreOption
+      );
+      
+      if (result === killOption) {
+        try {
+          // Try to kill the process using the port
+          await serverManager.killProcessUsingPort(50051);
+          log('Killed process using port 50051');
+          
+          // Start our server
+          log('Starting our server after killing process...');
+          await serverManager.startServer();
+        } catch (startError) {
+          log(`Failed to start server after killing process: ${startError}`);
+          vscode.window.showErrorMessage(`Failed to start server: ${startError}`);
+        }
+      }
+    }
+  } else if (!isServerRunning) {
+    // Auto-start the server if configured
+    const autoStartServer = vscode.workspace.getConfiguration('smartMemory').get<boolean>('autoStartServer');
+    if (autoStartServer) {
+      try {
+        log('Auto-starting server...');
+        await serverManager.startServer();
+      } catch (error) {
+        log(`Failed to auto-start server: ${error}`);
+        vscode.window.showErrorMessage(`Failed to auto-start server: ${error}`);
+      }
     }
   }
 
@@ -170,8 +211,68 @@ export async function activate(context: vscode.ExtensionContext) {
   log('Extension activation completed');
 }
 
-export function deactivate() {
+export async function deactivate() {
   // Clean up resources
   log('Smart Memory MCP extension is now deactivated');
+  
+  // Stop the server if it's running
+  try {
+    // We need to access the serverManager instance from the activate function
+    // Since we don't have direct access, we'll use the command API
+    await vscode.commands.executeCommand('smartMemory.stopServer');
+    log('Successfully stopped Smart Memory MCP server during deactivation');
+    
+    // Give the server some time to shut down properly
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Check if the port is still in use
+    const net = require('net');
+    const testSocket = new net.Socket();
+    
+    try {
+      // Try to connect to the port
+      await new Promise((resolve, reject) => {
+        testSocket.once('error', (err: { code: string }) => {
+          if (err.code === 'ECONNREFUSED') {
+            // Port is free, which is good
+            resolve(true);
+          } else {
+            reject(err);
+          }
+        });
+        
+        testSocket.once('connect', () => {
+          // Port is still in use
+          testSocket.end();
+          
+          // Try to forcefully kill the process using the port
+          try {
+            const { execSync } = require('child_process');
+            if (process.platform === 'win32') {
+              // Windows
+              execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :50051 ^| findstr LISTENING') do taskkill /F /PID %a`);
+            } else {
+              // Unix-like
+              execSync(`lsof -i :50051 -t | xargs kill -9`);
+            }
+            log('Forcefully killed process using port 50051');
+          } catch (killError) {
+            log(`Failed to forcefully kill process: ${killError}`);
+          }
+          
+          resolve(false);
+        });
+        
+        testSocket.connect(50051, 'localhost');
+      });
+    } catch (socketError) {
+      log(`Error checking port: ${socketError}`);
+    } finally {
+      testSocket.destroy();
+    }
+  } catch (error) {
+    log(`Failed to stop server during deactivation: ${error}`);
+  }
+  
   outputChannel.dispose();
 }

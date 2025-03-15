@@ -15,39 +15,92 @@ export class MemoryExplorerProvider implements vscode.TreeDataProvider<MemoryIte
   private _onDidChangeTreeData: vscode.EventEmitter<MemoryItem | undefined | null | void> = new vscode.EventEmitter<MemoryItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<MemoryItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
-  // Mock memory data
-  private memories: Memory[] = [
-    {
-      id: 'mem_123',
-      content: 'console.log("Hello, World!");',
-      contentType: 'text/javascript',
-      metadata: { source: 'vscode', language: 'javascript', project: 'demo' },
-      tokenCount: 8,
-      createdAt: new Date(Date.now() - 3600000) // 1 hour ago
-    },
-    {
-      id: 'mem_456',
-      content: 'function add(a, b) { return a + b; }',
-      contentType: 'text/javascript',
-      metadata: { source: 'vscode', language: 'javascript', project: 'demo' },
-      tokenCount: 12,
-      createdAt: new Date(Date.now() - 7200000) // 2 hours ago
-    },
-    {
-      id: 'mem_789',
-      content: '# Smart Memory MCP\n\nA system for optimizing memory usage.',
-      contentType: 'text/markdown',
-      metadata: { source: 'vscode', language: 'markdown', project: 'smart-memory-mcp' },
-      tokenCount: 15,
-      createdAt: new Date(Date.now() - 86400000) // 1 day ago
-    }
-  ];
+  // Memory data
+  private memories: Memory[] = [];
+  private isLoading: boolean = false;
+  private lastError: string | null = null;
 
-  constructor(private client: McpClient) {}
+  constructor(private client: McpClient) {
+    // Refresh the view when created
+    this.refresh().catch(error => {
+      console.error('Error refreshing memory explorer on initialization:', error);
+    });
+  }
 
-  refresh(): void {
-    // In a real implementation, we would fetch the latest memories from the server
+  async refresh(): Promise<void> {
+    this.isLoading = true;
+    this.lastError = null;
     this._onDidChangeTreeData.fire();
+    
+    try {
+      // Check if the client is connected to the server
+      const isConnected = await this.client.testConnection().catch(() => false);
+      
+      if (!isConnected) {
+        this.lastError = "Not connected to Smart Memory MCP server";
+        this.isLoading = false;
+        this._onDidChangeTreeData.fire();
+        return;
+      }
+      
+      // Fetch memories from the server
+      // Since there's no direct API to list all memories, we'll use the memory bank stats
+      // to get some basic information and then fetch details as needed
+      const stats = await this.client.getMemoryBankStats(30);
+      
+      // Clear existing memories
+      this.memories = [];
+      
+      // For each category, fetch some sample memories
+      if (stats.category_stats && stats.category_stats.length > 0) {
+        for (const categoryStat of stats.category_stats) {
+          try {
+            // Get context for this category to extract memory IDs
+            const context = await this.client.getMemoryBankContext(
+              'code', // Default mode
+              100, // Small token limit to just get a few memories
+              [categoryStat.category],
+              0.1 // Low threshold to get more results
+            );
+            
+            // Extract memory IDs from sources
+            if (context.sources && context.sources.length > 0) {
+              for (const source of context.sources) {
+                try {
+                  // Retrieve the actual memory content
+                  const memory = await this.client.retrieveMemory(source.id);
+                  
+                  // Add to our list
+                  this.memories.push({
+                    id: source.id,
+                    content: memory.content,
+                    contentType: memory.metadata?.content_type || 'text/plain',
+                    metadata: memory.metadata || {},
+                    tokenCount: memory.token_count,
+                    createdAt: new Date(memory.metadata?.timestamp || Date.now())
+                  });
+                } catch (memoryError) {
+                  console.error(`Error retrieving memory ${source.id}:`, memoryError);
+                }
+              }
+            }
+          } catch (categoryError) {
+            console.error(`Error fetching memories for category ${categoryStat.category}:`, categoryError);
+          }
+        }
+      }
+      
+      // If we couldn't get any memories, show a message
+      if (this.memories.length === 0) {
+        this.lastError = "No memories found. Try storing some memories first.";
+      }
+    } catch (error: any) {
+      console.error('Error refreshing memory explorer:', error);
+      this.lastError = `Error: ${error.message || 'Unknown error'}`;
+    } finally {
+      this.isLoading = false;
+      this._onDidChangeTreeData.fire();
+    }
   }
 
   getTreeItem(element: MemoryItem): vscode.TreeItem {
@@ -55,7 +108,43 @@ export class MemoryExplorerProvider implements vscode.TreeDataProvider<MemoryIte
   }
 
   async getChildren(element?: MemoryItem): Promise<MemoryItem[]> {
+    // If we're loading, show a loading indicator
+    if (this.isLoading && !element) {
+      return [
+        new MemoryItem(
+          'Loading...',
+          vscode.TreeItemCollapsibleState.None,
+          'loading',
+          'Fetching memories from the server'
+        )
+      ];
+    }
+    
+    // If we have an error, show it
+    if (this.lastError && !element) {
+      return [
+        new MemoryItem(
+          this.lastError,
+          vscode.TreeItemCollapsibleState.None,
+          'error',
+          'Error fetching memories'
+        )
+      ];
+    }
+    
     if (!element) {
+      // If we have no memories, show a message
+      if (this.memories.length === 0) {
+        return [
+          new MemoryItem(
+            'No memories found',
+            vscode.TreeItemCollapsibleState.None,
+            'empty',
+            'Try storing some memories first'
+          )
+        ];
+      }
+      
       // Root level - return memory categories
       return [
         new MemoryItem(
