@@ -3,7 +3,8 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 use serde::{Serialize, Deserialize};
-use crate::logging::{log_info, log_error, log_warning, LogLevel};
+use crate::{log_info, log_error, log_warning};
+use crate::logging::LogLevel;
 
 /// Version information
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,7 +188,7 @@ impl VersionManager {
     
     /// Check for updates
     pub fn check_for_updates(&mut self) -> io::Result<bool> {
-        log_info("version", &format!("Checking for updates. Current version: {}", self.current_version));
+        log_info!("version", &format!("Checking for updates. Current version: {}", self.current_version));
         
         match self.current_version.check_for_updates()? {
             Some(latest_version) => {
@@ -195,15 +196,15 @@ impl VersionManager {
                 self.update_available = latest_version.is_greater_than(&self.current_version);
                 
                 if self.update_available {
-                    log_info("version", &format!("Update available: {}", latest_version));
+                    log_info!("version", &format!("Update available: {}", latest_version));
                 } else {
-                    log_info("version", "No updates available");
+                    log_info!("version", "No updates available");
                 }
                 
                 Ok(self.update_available)
             }
             None => {
-                log_info("version", "No updates available");
+                log_info!("version", "No updates available");
                 self.update_available = false;
                 Ok(false)
             }

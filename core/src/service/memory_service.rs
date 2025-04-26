@@ -731,28 +731,38 @@ impl SmartMemoryMcp for SmartMemoryService {
     }
 }
 
-pub fn create_service() -> SmartMemoryMcpServer<SmartMemoryService> {
-    // Check if DB_PATH environment variable is set
-    let service = if let Ok(db_path) = std::env::var("DB_PATH") {
-        println!("Using SQLite database at {}", db_path);
-        
-        // Check if CONFIG_PATH environment variable is set
-        if let Ok(config_path) = std::env::var("CONFIG_PATH") {
-            println!("Using memory bank config at {}", config_path);
-            
-            // Create service with SQLite and config
-            SmartMemoryService::new_with_config(
-                Path::new(&db_path),
-                Path::new(&config_path),
-            )
-        } else {
-            // Create service with SQLite only
-            SmartMemoryService::new_with_sqlite(Path::new(&db_path))
-        }
-    } else {
-        // Create in-memory service
-        SmartMemoryService::new()
-    }.expect("Failed to create SmartMemoryService");
+/// Create a new memory store instance
+pub fn create_memory_store() -> Arc<MemoryStore> {
+    let tokenizer = Tokenizer::new(TokenizerType::Simple)
+        .expect("Failed to create tokenizer");
+    Arc::new(MemoryStore::new_in_memory(tokenizer))
+}
+
+/// Create a new service with a shared memory store
+pub fn create_service_with_store(memory_store: Arc<MemoryStore>) -> SmartMemoryMcpServer<SmartMemoryService> {
+    let service = SmartMemoryService {
+        memory_store,
+        relevance_scorer: Arc::new(TfIdfScorer::new()),
+        context_optimizer: Arc::new(TokenBudgetOptimizer::new()),
+        memory_bank_config: MemoryBankConfig::default(),
+    };
     
     SmartMemoryMcpServer::new(service)
+}
+
+pub fn create_service() -> SmartMemoryMcpServer<SmartMemoryService> {
+    // Check if DB_PATH environment variable is set
+    let memory_store = if let Ok(db_path) = std::env::var("DB_PATH") {
+        println!("Using SQLite database at {}", db_path);
+        
+        let tokenizer = Tokenizer::new(TokenizerType::Simple)
+            .expect("Failed to create tokenizer");
+            
+        Arc::new(MemoryStore::new_sqlite(Path::new(&db_path), tokenizer)
+            .expect("Failed to create SQLite memory store"))
+    } else {
+        create_memory_store()
+    };
+    
+    create_service_with_store(memory_store)
 }

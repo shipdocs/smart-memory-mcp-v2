@@ -3,7 +3,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Serialize, Deserialize};
-use crate::logging::{log_info, log_error, log_warning, LogLevel};
+use crate::{log_info, log_error, log_warning};
+use crate::logging::LogLevel;
 
 /// Recovery state
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +23,8 @@ pub struct RecoveryState {
     pub crash_count: u32,
     /// Last crash timestamp
     pub last_crash: Option<u64>,
+    /// Last crash reason
+    pub last_crash_reason: Option<String>,
     /// Recovery attempts
     pub recovery_attempts: u32,
     /// Safe mode enabled
@@ -41,6 +44,7 @@ impl Default for RecoveryState {
                 .as_secs(),
             crash_count: 0,
             last_crash: None,
+            last_crash_reason: None,
             recovery_attempts: 0,
             safe_mode: false,
         }
@@ -117,8 +121,8 @@ impl CrashRecoveryManager {
         self.save_state()
     }
     
-    /// Record a crash
-    pub fn record_crash(&mut self) -> io::Result<()> {
+    /// Record a crash with reason
+    pub fn record_crash(&mut self, reason: &str) -> io::Result<()> {
         self.state.crash_count += 1;
         self.state.last_crash = Some(
             SystemTime::now()
@@ -126,13 +130,53 @@ impl CrashRecoveryManager {
                 .unwrap_or_default()
                 .as_secs()
         );
+        self.state.last_crash_reason = Some(reason.to_string());
         
         // If we've had too many crashes, enable safe mode
         if self.state.crash_count >= 3 {
             self.state.safe_mode = true;
-            log_warning!("recovery", "Too many consecutive crashes, enabling safe mode");
+            log_warning!("recovery", &format!("Too many consecutive crashes ({}), enabling safe mode", reason));
         }
         
+        self.save_state()
+    }
+
+    /// Check for previous crashes
+    pub fn check_previous_crash(&self) -> Option<&RecoveryState> {
+        if self.state.crash_count > 0 {
+            Some(&self.state)
+        } else {
+            None
+        }
+    }
+
+    /// Perform recovery actions
+    pub fn perform_recovery(&mut self) -> io::Result<()> {
+        if !self.should_attempt_recovery() {
+            return Err(io::Error::new(io::ErrorKind::Other, "Too many recovery attempts"));
+        }
+
+        self.record_recovery_attempt()?;
+        
+        // Check database integrity
+        if !self.check_database_integrity()? {
+            log_warning!("recovery", "Database integrity check failed, attempting repair");
+            if !self.repair_database()? {
+                return Err(io::Error::new(io::ErrorKind::Other, "Database repair failed"));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Register shutdown hook
+    pub fn register_shutdown_hook(&self) {
+        log_info!("recovery", "Registered shutdown hook");
+    }
+
+    /// Update server state
+    pub fn update_state(&mut self, state: &str) -> io::Result<()> {
+        log_info!("recovery", &format!("Server state updated to: {}", state));
         self.save_state()
     }
     

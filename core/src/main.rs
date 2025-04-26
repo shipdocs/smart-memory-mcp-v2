@@ -17,7 +17,7 @@ mod proto {
     tonic::include_proto!("smart_memory");
 }
 
-use logging::{LogLevel, log_info, log_debug, log_error, log_warning};
+use crate::logging::LogLevel;
 use crash_recovery::CrashRecoveryManager;
 use version::VersionManager;
 use parent_process_monitor::{start_parent_process_monitor, is_shutdown_requested, wait_for_shutdown_request};
@@ -169,22 +169,31 @@ async fn main() -> Result<()> {
 
     log_debug!("main", &format!("[{}ms] Creating services...", start_time.elapsed().as_millis()));
     
-    // Create the main service
-    let memory_service = service::create_service();
+    // Create the memory store first
+    let memory_store = service::create_memory_store();
+    log_info!("main", &format!("[{}ms] Memory store created successfully", start_time.elapsed().as_millis()));
+
+    // Create the main service with the shared memory store
+    let memory_service = service::create_service_with_store(memory_store.clone());
     log_info!("main", &format!("[{}ms] Memory service created successfully", start_time.elapsed().as_millis()));
     
-    // Create the health check service
-    let memory_store = memory_service.get_ref().memory_store.clone();
+    // Create the health check service with the shared memory store
     let health_service = service::create_health_service(Some(memory_store));
     log_info!("main", &format!("[{}ms] Health service created successfully", start_time.elapsed().as_millis()));
     
     log_debug!("main", &format!("[{}ms] Configuring server on {}...", start_time.elapsed().as_millis(), addr));
+    let reflection_service = tonic_reflection::server::Builder::configure()
+        .register_encoded_file_descriptor_set(proto::FILE_DESCRIPTOR_SET)
+        .build()
+        .unwrap();
+
     let server = Server::builder()
         .accept_http1(true)
         .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
         .tcp_nodelay(true)
         .add_service(memory_service)
-        .add_service(health_service);
+        .add_service(health_service)
+        .add_service(reflection_service);
     
     log_info!("main", &format!("[{}ms] Server configured, starting to serve...", start_time.elapsed().as_millis()));
     

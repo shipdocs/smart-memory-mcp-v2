@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
-use crate::logging::{log_info, log_error, log_warning, LogLevel};
+use crate::{log_info, log_error, log_warning};
+use crate::logging::LogLevel;
 
 /// Backup metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
