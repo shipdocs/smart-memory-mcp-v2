@@ -1,14 +1,14 @@
 //! Memory Bank configuration module
-//! 
+//!
 //! This module provides functionality for configuring the memory bank categories,
 //! token budgets, and other settings.
 
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use anyhow::{Result, Context};
-use serde::{Deserialize, Serialize};
 
 use super::TokenCount;
 
@@ -78,33 +78,48 @@ pub struct MemoryBankConfig {
 impl Default for MemoryBankConfig {
     fn default() -> Self {
         let mut categories = HashMap::new();
-        
+
         // Add default categories
-        categories.insert("context".to_string(), CategoryConfig {
-            max_tokens: 10000,
-            priority: Priority::High,
-        });
-        
-        categories.insert("decision".to_string(), CategoryConfig {
-            max_tokens: 5000,
-            priority: Priority::Medium,
-        });
-        
-        categories.insert("progress".to_string(), CategoryConfig {
-            max_tokens: 8000,
-            priority: Priority::High,
-        });
-        
-        categories.insert("product".to_string(), CategoryConfig {
-            max_tokens: 10000,
-            priority: Priority::Medium,
-        });
-        
-        categories.insert("pattern".to_string(), CategoryConfig {
-            max_tokens: 5000,
-            priority: Priority::Low,
-        });
-        
+        categories.insert(
+            "context".to_string(),
+            CategoryConfig {
+                max_tokens: 10000,
+                priority: Priority::High,
+            },
+        );
+
+        categories.insert(
+            "decision".to_string(),
+            CategoryConfig {
+                max_tokens: 5000,
+                priority: Priority::Medium,
+            },
+        );
+
+        categories.insert(
+            "progress".to_string(),
+            CategoryConfig {
+                max_tokens: 8000,
+                priority: Priority::High,
+            },
+        );
+
+        categories.insert(
+            "product".to_string(),
+            CategoryConfig {
+                max_tokens: 10000,
+                priority: Priority::Medium,
+            },
+        );
+
+        categories.insert(
+            "pattern".to_string(),
+            CategoryConfig {
+                max_tokens: 5000,
+                priority: Priority::Low,
+            },
+        );
+
         Self {
             categories,
             update_triggers: UpdateTriggersConfig {
@@ -128,38 +143,38 @@ impl MemoryBankConfig {
     pub fn from_file(path: &Path) -> Result<Self> {
         let mut file = File::open(path)
             .with_context(|| format!("Failed to open config file: {}", path.display()))?;
-        
+
         let mut contents = String::new();
         file.read_to_string(&mut contents)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
-        
+
         let config = serde_json::from_str(&contents)
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
-        
+
         Ok(config)
     }
-    
+
     /// Save configuration to a JSON file
     pub fn to_file(&self, path: &Path) -> Result<()> {
-        let contents = serde_json::to_string_pretty(self)
-            .context("Failed to serialize config")?;
-        
+        let contents = serde_json::to_string_pretty(self).context("Failed to serialize config")?;
+
         std::fs::write(path, contents)
             .with_context(|| format!("Failed to write config file: {}", path.display()))?;
-        
+
         Ok(())
     }
-    
+
     /// Get the maximum tokens for a category
     pub fn get_max_tokens(&self, category: &str) -> TokenCount {
-        let max_tokens = self.categories
+        let max_tokens = self
+            .categories
             .get(category)
             .map(|c| c.max_tokens)
             .unwrap_or(1000);
-        
+
         TokenCount::from(max_tokens)
     }
-    
+
     /// Get the priority for a category
     pub fn get_priority(&self, category: &str) -> Priority {
         self.categories

@@ -3,22 +3,21 @@
 //! This module provides functionality for storing and retrieving memory content,
 //! along with tokenization and optimization capabilities.
 
-mod memory;
-mod tokenizer;
-mod db;
-mod context;
-mod memory_bank_config;
 mod backup;
+mod context;
+mod db;
+mod memory;
+mod memory_bank_config;
+mod tokenizer;
 
-pub use memory::{Memory, MemoryId, MemoryStore};
-pub use tokenizer::{Tokenizer, TokenCount, TokenizerType};
-pub use db::{MemoryRepository, SqliteMemoryRepository};
-pub use context::{
-    RelevanceScorer, TfIdfScorer, ContextOptimizer, TokenBudgetOptimizer,
-    relevance::RelevanceScore
-};
-pub use memory_bank_config::{
-    MemoryBankConfig, CategoryConfig, Priority, UpdateTriggersConfig,
-    TokenBudgetConfig, RelevanceConfig
-};
 pub use backup::{BackupManager, BackupMetadata};
+pub use context::{
+    relevance::RelevanceScore, ContextOptimizer, RelevanceScorer, TfIdfScorer, TokenBudgetOptimizer,
+};
+pub use db::{MemoryRepository, SqliteMemoryRepository};
+pub use memory::{Memory, MemoryId, MemoryStore};
+pub use memory_bank_config::{
+    CategoryConfig, MemoryBankConfig, Priority, RelevanceConfig, TokenBudgetConfig,
+    UpdateTriggersConfig,
+};
+pub use tokenizer::{TokenCount, Tokenizer, TokenizerType};

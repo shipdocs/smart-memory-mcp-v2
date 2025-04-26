@@ -17,6 +17,9 @@ rusqlite = { version = "0.30", features = ["bundled"] }
 dirs = "5.0"
 lazy_static = "1.4"
 ctrlc = { version = "3.4", features = ["termination"] }
+tonic-reflection = { version = "0.11", default-features = false, features = ["server"] }
+
+# Removed patch section to avoid conflicts
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.26"
@@ -27,3 +30,6 @@ winapi = { version = "0.3", features = ["processthreadsapi", "handleapi", "winnt
 
 [build-dependencies]
 tonic-build = "0.11"
+
+[dev-dependencies]
+tempfile = "3.5"

@@ -1,6 +1,6 @@
 //! Database storage for memories
 
-mod schema;
 mod repository;
+mod schema;
 
 pub use repository::{MemoryRepository, SqliteMemoryRepository};
