@@ -138,8 +138,29 @@ impl BackupManager {
             }
         }
         
+        // Remove the target file before restoring
+        if target_path.exists() {
+            log_info!("backup", &format!("Removing target file before restore: {}", target_path.display()));
+            fs::remove_file(target_path)?;
+        }
+        
         // Copy the backup file to the target location
+        log_info!("backup", &format!("Copying backup file {} to target {}", backup_path.display(), target_path.display()));
         self.copy_file(backup_path, target_path)?;
+        
+        // Verify the content was restored correctly
+        let mut restored_content = Vec::new();
+        let mut file = File::open(target_path)?;
+        file.read_to_end(&mut restored_content)?;
+        
+        let mut original_content = Vec::new();
+        let mut orig_file = File::open(backup_path)?;
+        orig_file.read_to_end(&mut original_content)?;
+        
+        if restored_content != original_content {
+            log_error!("backup", "Restored content does not match original backup content");
+            return Err(io::Error::new(io::ErrorKind::Other, "Restored content mismatch"));
+        }
         
         log_info!("backup", &format!("Restored backup from {} to {}", 
             backup_path.display(), target_path.display()));
@@ -206,11 +227,20 @@ impl BackupManager {
     /// Rotate old backups
     fn rotate_backups(&self) -> io::Result<()> {
         // List all backups
-        let backups = self.list_backups()?;
+        let mut backups = self.list_backups()?;
+        
+        // Sort backups by timestamp (newest first)
+        backups.sort_by(|(_, a), (_, b)| b.timestamp.cmp(&a.timestamp));
+        
+        log_info!("backup", &format!("Backups before rotation: {}", backups.len()));
+        log_info!("backup", &format!("Max backups allowed: {}", self.max_backups));
         
         // If we have more backups than the maximum, delete the oldest ones
         if backups.len() > self.max_backups {
-            for (path, _) in backups.iter().skip(self.max_backups) {
+            let to_delete = backups.len() - self.max_backups;
+            log_info!("backup", &format!("Deleting {} old backups", to_delete));
+            for (path, _) in backups.iter().rev().take(to_delete) {
+                log_info!("backup", &format!("Deleting old backup: {}", path.display()));
                 if let Err(e) = self.delete_backup(path) {
                     log_warning!("backup", &format!("Failed to delete old backup {}: {}", path.display(), e));
                 }
