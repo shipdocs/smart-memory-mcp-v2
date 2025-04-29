@@ -1,0 +1,3 @@
+[submodule "user-workspace/smart-memory-mcp-v2"]
+    path = user-workspace/smart-memory-mcp-v2
+    url = https://github.com/shipdocs/smart-memory-mcp-v2.git

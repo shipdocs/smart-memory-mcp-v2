@@ -16,6 +16,7 @@ Before building the extension, ensure you have the following installed:
 
 - **Node.js** (v18 or later) and **npm**
 - **Rust** (stable) and **Cargo**
+- **Protocol Buffers Compiler** (`protoc`)
 - **VS Code Extension Manager** (`vsce`)
 
 ### Installing Prerequisites
@@ -28,7 +29,12 @@ Before building the extension, ensure you have the following installed:
    # or on Windows, download and run rustup-init.exe
    ```
 
-3. **VS Code Extension Manager**:
+3. **Protocol Buffers Compiler**:
+   - Ubuntu/Debian: `sudo apt-get install -y protobuf-compiler`
+   - macOS: `brew install protobuf`
+   - Windows: `choco install protoc`
+
+4. **VS Code Extension Manager**:
    ```bash
    npm install -g @vscode/vsce
    ```
@@ -132,21 +138,23 @@ The project uses GitHub Actions to automatically build the extension for all pla
 
 The main workflows related to building the extension are:
 
-1. **CI Workflow** (`.github/workflows/ci.yml`):
-   - Builds and tests the project on Windows, macOS, and Linux
-   - Creates a VSIX package (on Linux)
-   - Uploads the VSIX as an artifact
-
-2. **Release Workflow** (part of CI):
-   - Triggered when a tag is pushed
-   - Downloads the VSIX artifact
+1. **VSIX Build and Release Workflow** (`.github/workflows/vsix-release.yml`):
+   - Dedicated workflow for building and releasing the VSIX file
+   - Builds the core and extension
+   - Packages the VSIX file
    - Creates a GitHub release
-   - Attaches the VSIX file to the release
-   - Publishes to VS Code Marketplace
+   - Publishes to VS Code Marketplace (if configured)
+
+2. **CI Workflow** (`.github/workflows/ci.yml`):
+   - Builds and tests the project on Windows, macOS, and Linux
+   - Runs linting and security checks
+   - Ensures code quality
 
 ### Creating a Release
 
-To create a new release with the VSIX file:
+You have two options for creating a release:
+
+#### Option 1: Using Tags (Recommended)
 
 1. Update the version in `extension/package.json`
 2. Commit the changes
@@ -155,6 +163,14 @@ To create a new release with the VSIX file:
    git tag v1.0.0  # Replace with your version
    git push origin v1.0.0
    ```
+
+#### Option 2: Manual Trigger
+
+1. Go to the Actions tab in your GitHub repository
+2. Select the "VSIX Build and Release" workflow
+3. Click "Run workflow"
+4. Choose whether to create a draft release or publish immediately
+5. Click "Run workflow"
 
 The GitHub Actions workflow will automatically build the VSIX and create a release.
 
@@ -167,16 +183,21 @@ The GitHub Actions workflow will automatically build the VSIX and create a relea
    npm install -g @vscode/vsce
    ```
 
-2. **Build errors in the core**:
+2. **Missing Protocol Buffers Compiler**:
+   - Error message: `Could not find protoc. If protoc is installed, try setting the PROTOC environment variable to the path of the protoc binary.`
+   - Solution: Install protoc as described in the prerequisites section
+   - Alternatively, set the PROTOC environment variable: `export PROTOC=/path/to/protoc`
+
+3. **Build errors in the core**:
    - Ensure Rust is properly installed: `rustc --version`
    - Update Rust: `rustup update`
    - Check for missing dependencies (platform-specific)
 
-3. **TypeScript compilation errors**:
+4. **TypeScript compilation errors**:
    - Ensure Node.js is properly installed: `node --version`
    - Update npm dependencies: `cd extension && npm install`
 
-4. **Permission issues when running the core binary**:
+5. **Permission issues when running the core binary**:
    - Ensure the binary is executable: `chmod +x extension/bin/smart-memory-mcp-core`
 
 ### Getting Help

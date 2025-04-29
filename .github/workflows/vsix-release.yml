@@ -1,0 +1,142 @@
+name: VSIX Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'draft'
+        type: choice
+        options:
+          - draft
+          - release
+
+jobs:
+  build:
+    name: Build VSIX
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'extension/package-lock.json'
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      
+      - name: Install Protobuf Compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+      
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Build Core
+        run: |
+          cd core
+          cargo build --release
+      
+      - name: Install Extension Dependencies
+        run: |
+          cd extension
+          npm ci
+      
+      - name: Build Extension
+        run: |
+          cd extension
+          npm run compile
+      
+      - name: Create bin directory
+        run: |
+          mkdir -p extension/bin
+          cp core/target/release/smart-memory-mcp-core extension/bin/
+          chmod +x extension/bin/smart-memory-mcp-core
+      
+      - name: Package Extension
+        run: |
+          cd extension
+          npm install -g @vscode/vsce
+          vsce package
+          echo "VSIX_PATH=$(ls *.vsix)" >> $GITHUB_ENV
+      
+      - name: Upload VSIX as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-package
+          path: extension/*.vsix
+          if-no-files-found: error
+  
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Download VSIX Package
+        uses: actions/download-artifact@v4
+        with:
+          name: vsix-package
+          path: artifacts
+      
+      - name: Get VSIX filename
+        run: echo "VSIX_FILENAME=$(ls artifacts/*.vsix)" >> $GITHUB_ENV
+      
+      - name: Get version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+      
+      - name: Set version for manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          VERSION=$(grep -oP '"version": "\K[^"]+' extension/package.json)
+          echo "VERSION=v$VERSION" >> $GITHUB_ENV
+      
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.VSIX_FILENAME }}
+          name: Release ${{ env.VERSION }}
+          tag_name: ${{ env.VERSION }}
+          draft: ${{ github.event.inputs.release_type == 'draft' || github.event_name != 'workflow_dispatch' }}
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Node.js for Publishing
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Publish to VS Code Marketplace
+        if: github.event.inputs.release_type == 'release' || startsWith(github.ref, 'refs/tags/')
+        run: |
+          npm install -g @vscode/vsce
+          vsce publish -p ${{ secrets.VSCE_PAT }} --packagePath ${{ env.VSIX_FILENAME }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
