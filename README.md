@@ -86,6 +86,13 @@ See the [development guide](docs/development-guide.md) for information on:
 - Testing
 - Contributing
 
+## Building the Extension
+
+See the [building VSIX guide](docs/building-vsix.md) for detailed instructions on:
+- Building the extension locally
+- Cross-platform building
+- Installing the built extension
+
 ## Deployment
 
 See the [deployment guide](docs/deployment-guide.md) for information on:

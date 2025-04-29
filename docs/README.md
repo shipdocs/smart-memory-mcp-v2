@@ -54,6 +54,12 @@ Smart Memory MCP offers three installation methods:
 
 For detailed installation instructions, see the [Cross-Platform Usage Guide](cross-platform-usage.md).
 
+## Building the Extension
+
+For developers who want to build the VS Code extension locally:
+
+- [Building VSIX Guide](building-vsix.md) - Detailed instructions for building the VSIX file locally
+
 ## Troubleshooting
 
 If you encounter issues with the Smart Memory MCP system, refer to the [Troubleshooting Guide](troubleshooting-guide.md) for solutions to common problems.
