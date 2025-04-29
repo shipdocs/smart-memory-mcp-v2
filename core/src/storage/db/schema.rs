@@ -1,7 +1,7 @@
 //! Database schema for memories
 
-use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Memory entity for database storage
 #[derive(Debug, Clone, Serialize, Deserialize)]

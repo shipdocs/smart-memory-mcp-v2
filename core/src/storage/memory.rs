@@ -1,13 +1,13 @@
 //! Memory storage implementation
 
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use anyhow::{Result, Context};
 use uuid::Uuid;
 
-use super::tokenizer::{Tokenizer, TokenCount, TokenizerType};
 use super::db::{MemoryRepository, SqliteMemoryRepository};
+use super::tokenizer::{TokenCount, Tokenizer, TokenizerType};
 
 /// Unique identifier for a memory
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -16,7 +16,10 @@ pub struct MemoryId(String);
 impl MemoryId {
     /// Create a new random memory ID
     pub fn new() -> Self {
-        Self(format!("mem_{}", Uuid::new_v4().to_string().split('-').next().unwrap()))
+        Self(format!(
+            "mem_{}",
+            Uuid::new_v4().to_string().split('-').next().unwrap()
+        ))
     }
 
     /// Get the string representation of the memory ID
@@ -73,7 +76,7 @@ impl Memory {
         let id = MemoryId::new();
         let token_count = tokenizer.count_tokens(&content);
         let now = chrono::Utc::now();
-        
+
         Self {
             id,
             content,
@@ -109,20 +112,20 @@ impl MemoryStore {
     pub fn new_in_memory(tokenizer: Tokenizer) -> Self {
         // Create an in-memory repository
         let repository = Arc::new(InMemoryRepository::new(tokenizer.clone()));
-        
+
         Self {
             repository,
             tokenizer,
             cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
-    
+
     /// Create a new memory store with SQLite storage
     pub fn new_sqlite(db_path: &Path, tokenizer: Tokenizer) -> Result<Self> {
         // Create a SQLite repository
         let repository = SqliteMemoryRepository::new(db_path, tokenizer.clone())
             .context("Failed to create SQLite repository")?;
-        
+
         Ok(Self {
             repository: Arc::new(repository),
             tokenizer,
@@ -139,15 +142,22 @@ impl MemoryStore {
         mode: Option<String>,
         metadata: HashMap<String, String>,
     ) -> Result<Memory> {
-        let memory = Memory::new(content, content_type, category, mode, metadata, &self.tokenizer);
-        
+        let memory = Memory::new(
+            content,
+            content_type,
+            category,
+            mode,
+            metadata,
+            &self.tokenizer,
+        );
+
         // Store the memory in the repository
         self.repository.store(&memory)?;
-        
+
         // Update the cache
         let mut cache = self.cache.lock().unwrap();
         cache.insert(memory.id.clone(), memory.clone());
-        
+
         Ok(memory)
     }
 
@@ -159,21 +169,21 @@ impl MemoryStore {
             if let Some(memory) = cache.get_mut(id) {
                 // Update the last accessed time
                 memory.touch();
-                
+
                 // Update the repository
                 self.repository.touch(id)?;
-                
+
                 return Ok(Some(memory.clone()));
             }
         }
-        
+
         // If not in cache, retrieve from the repository
         match self.repository.retrieve(id)? {
             Some(memory) => {
                 // Update the cache
                 let mut cache = self.cache.lock().unwrap();
                 cache.insert(memory.id.clone(), memory.clone());
-                
+
                 Ok(Some(memory))
             }
             None => Ok(None),
@@ -189,7 +199,7 @@ impl MemoryStore {
     pub fn get_total_tokens(&self) -> Result<TokenCount> {
         self.repository.total_tokens()
     }
-    
+
     /// Check if the connection to the repository is working
     pub fn check_connection(&self) -> Result<bool> {
         // For now, just check if we can get all IDs
@@ -225,12 +235,12 @@ impl MemoryRepository for InMemoryRepository {
         memories.insert(memory.id.clone(), memory.clone());
         Ok(())
     }
-    
+
     fn retrieve(&self, id: &MemoryId) -> Result<Option<Memory>> {
         let memories = self.memories.lock().unwrap();
         Ok(memories.get(id).cloned())
     }
-    
+
     fn touch(&self, id: &MemoryId) -> Result<()> {
         let mut memories = self.memories.lock().unwrap();
         if let Some(memory) = memories.get_mut(id) {
@@ -238,12 +248,12 @@ impl MemoryRepository for InMemoryRepository {
         }
         Ok(())
     }
-    
+
     fn get_all_ids(&self) -> Result<Vec<MemoryId>> {
         let memories = self.memories.lock().unwrap();
         Ok(memories.keys().cloned().collect())
     }
-    
+
     fn total_tokens(&self) -> Result<TokenCount> {
         let memories = self.memories.lock().unwrap();
         Ok(memories.values().map(|m| m.token_count).sum())

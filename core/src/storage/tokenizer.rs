@@ -1,11 +1,11 @@
 //! Tokenization utilities for memory content
 
+use anyhow::{Context, Result};
 use std::ops::{Add, AddAssign};
 use std::path::Path;
 use std::sync::Arc;
-use anyhow::{Result, Context};
-use tokenizers::Tokenizer as HfTokenizer;
 use tokenizers::models::bpe::BPE;
+use tokenizers::Tokenizer as HfTokenizer;
 
 /// Count of tokens in a piece of content
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -91,7 +91,7 @@ impl Tokenizer {
                 Some(Arc::new(tokenizer))
             }
         };
-        
+
         Ok(Self {
             tokenizer_type,
             hf_tokenizer,
@@ -103,16 +103,16 @@ impl Tokenizer {
         // Check if the tokenizer files exist in the models directory
         let vocab_path = Path::new("models/gpt2-vocab.json");
         let merges_path = Path::new("models/gpt2-merges.txt");
-        
+
         if !vocab_path.exists() || !merges_path.exists() {
             // Download the tokenizer files if they don't exist
             Self::download_gpt2_tokenizer()?;
         }
-        
+
         // Load the tokenizer
         match HfTokenizer::from_file("models/gpt2-tokenizer.json") {
             Ok(tokenizer) => Ok(tokenizer),
-            Err(e) => Err(anyhow::anyhow!("Failed to load GPT-2 tokenizer: {}", e))
+            Err(e) => Err(anyhow::anyhow!("Failed to load GPT-2 tokenizer: {}", e)),
         }
     }
 
@@ -120,18 +120,18 @@ impl Tokenizer {
     fn download_gpt2_tokenizer() -> Result<()> {
         // Create the models directory if it doesn't exist
         std::fs::create_dir_all("models")?;
-        
+
         // Create a basic BPE tokenizer for GPT-2
         // In a real implementation, we would download the actual GPT-2 tokenizer files
         // For now, we'll create a simple BPE tokenizer
         // Just create a default tokenizer for now
         // In a real implementation, we would download the actual GPT-2 tokenizer files
         let mut tokenizer = HfTokenizer::new(BPE::default());
-        
+
         // Save the tokenizer
         match tokenizer.save("models/gpt2-tokenizer.json", true) {
             Ok(_) => Ok(()),
-            Err(e) => Err(anyhow::anyhow!("Failed to save GPT-2 tokenizer: {}", e))
+            Err(e) => Err(anyhow::anyhow!("Failed to save GPT-2 tokenizer: {}", e)),
         }
     }
 
@@ -139,17 +139,20 @@ impl Tokenizer {
     fn load_cl100k_tokenizer() -> Result<HfTokenizer> {
         // Check if the tokenizer file exists in the models directory
         let tokenizer_path = Path::new("models/cl100k-tokenizer.json");
-        
+
         if !tokenizer_path.exists() {
             // For now, fall back to GPT-2 tokenizer
             // In a real implementation, we would download the cl100k_base tokenizer
             return Self::load_gpt2_tokenizer();
         }
-        
+
         // Load the tokenizer
         match HfTokenizer::from_file(tokenizer_path) {
             Ok(tokenizer) => Ok(tokenizer),
-            Err(e) => Err(anyhow::anyhow!("Failed to load cl100k_base tokenizer: {}", e))
+            Err(e) => Err(anyhow::anyhow!(
+                "Failed to load cl100k_base tokenizer: {}",
+                e
+            )),
         }
     }
 
@@ -186,11 +189,9 @@ impl Default for Tokenizer {
     fn default() -> Self {
         // Use the simple tokenizer as default for now
         // In a real implementation, we would use the cl100k_base tokenizer
-        Self::new(TokenizerType::Simple).unwrap_or_else(|_| {
-            Self {
-                tokenizer_type: TokenizerType::Simple,
-                hf_tokenizer: None,
-            }
+        Self::new(TokenizerType::Simple).unwrap_or_else(|_| Self {
+            tokenizer_type: TokenizerType::Simple,
+            hf_tokenizer: None,
         })
     }
 }

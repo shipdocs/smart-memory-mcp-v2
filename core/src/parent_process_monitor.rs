@@ -37,7 +37,10 @@ pub fn start_parent_process_monitor() -> Option<thread::JoinHandle<()>> {
         }
     };
 
-    println!("Starting parent process monitor for VSCode PID: {}", parent_pid);
+    println!(
+        "Starting parent process monitor for VSCode PID: {}",
+        parent_pid
+    );
 
     // Create a thread to monitor the parent process
     let handle = thread::spawn(move || {
@@ -68,7 +71,9 @@ fn read_vscode_pid_file() -> Option<u32> {
         },
     };
 
-    let pid_file_path = Path::new(&home_dir).join(".smart-memory").join("vscode.pid");
+    let pid_file_path = Path::new(&home_dir)
+        .join(".smart-memory")
+        .join("vscode.pid");
 
     if !pid_file_path.exists() {
         return None;

@@ -1,168 +1,127 @@
-name: CI
+name: CI Pipeline
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  build:
-    name: Build and Test
+  rust-build-test:
+    name: Rust Build and Test
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false  # Don't cancel other jobs if one fails
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            platform: linux
-            artifact_name: smart-memory-mcp-linux
-            binary_name: smart-memory-mcp-core
-          - os: windows-latest
-            platform: windows
-            artifact_name: smart-memory-mcp-windows
-            binary_name: smart-memory-mcp-core.exe
-          - os: macos-latest
-            platform: macos
-            artifact_name: smart-memory-mcp-macos
-            binary_name: smart-memory-mcp-core
-
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git
+      - name: Check Rust formatting
+        run: |
+          cd core
+          cargo fmt -- --check
+      - name: Build and Test
+        run: |
+          cd core
+          cargo build --verbose
+          cargo test --verbose
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: rust-test-results-${{ matrix.os }}
+          path: core/target/debug/deps
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: 'extension/package-lock.json'
-
-    - name: Set up Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-
-    - name: Build Core
-      working-directory: ./core
-      run: cargo build --release
-
-    - name: Test Core
-      working-directory: ./core
-      run: cargo test
-
-    - name: Build Extension
-      working-directory: ./extension
-      run: |
-        npm ci
-        npm run build
-
-    - name: Test Extension
-      working-directory: ./extension
-      run: npm test
-
-    - name: Create Artifact Directories
-      shell: bash
-      run: |
-        mkdir -p artifacts/bin/${{ matrix.platform }}
-        mkdir -p artifacts/vsix
-
-    - name: Copy Binary
-      shell: bash
-      run: |
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          cp core/target/release/${{ matrix.binary_name }} artifacts/bin/${{ matrix.platform }}/
-        else
-          cp core/target/release/${{ matrix.binary_name }} artifacts/bin/${{ matrix.platform }}/
-          chmod +x artifacts/bin/${{ matrix.platform }}/${{ matrix.binary_name }}
-        fi
-
-    - name: Upload Binary
-      uses: actions/upload-artifact@v3
-      with:
-        name: ${{ matrix.artifact_name }}
-        path: artifacts/bin/${{ matrix.platform }}/${{ matrix.binary_name }}
-        if-no-files-found: error
-
-    - name: Package Extension (Linux only)
-      if: matrix.os == 'ubuntu-latest'
-      working-directory: ./extension
-      run: |
-        npm run package
-        cp *.vsix ../artifacts/vsix/
-
-    - name: Upload VSIX Package (Linux only)
-      if: matrix.os == 'ubuntu-latest'
-      uses: actions/upload-artifact@v3
-      with:
-        name: vsix-package
-        path: artifacts/vsix/*.vsix
-        if-no-files-found: error
-
-  release:
-    name: Create Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+  node-build-test:
+    name: Node.js Build and Test
     runs-on: ubuntu-latest
-    
+    defaults:
+      run:
+        working-directory: extension
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      - name: Install dependencies
+        run: npm install
+      - name: Build extension
+        run: npm run compile
+      - name: Run tests
+        run: npm test
 
-    - name: Create Artifact Directories
-      run: |
-        mkdir -p artifacts/bin/linux
-        mkdir -p artifacts/bin/windows
-        mkdir -p artifacts/bin/macos
-        mkdir -p artifacts/vsix
+  lint-format:
+    name: Lint and Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rustfmt
+        run: rustup component add rustfmt
+      - name: Check Rust formatting
+        run: |
+          cd core
+          cargo fmt -- --check
+      - name: Install ESLint
+        run: |
+          cd extension
+          npm install eslint
+      - name: Run ESLint
+        run: |
+          cd extension
+          npx eslint .
 
-    - name: Download Linux Binary
-      uses: actions/download-artifact@v3
-      with:
-        name: smart-memory-mcp-linux
-        path: artifacts/bin/linux
+  security-scans:
+    name: Security Scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Cargo Audit
+        run: |
+          cd core
+          cargo install cargo-audit || true
+          cargo audit
+      - name: NPM Audit
+        run: |
+          cd extension
+          npm install
+          npm audit --audit-level=moderate
 
-    - name: Download Windows Binary
-      uses: actions/download-artifact@v3
-      with:
-        name: smart-memory-mcp-windows
-        path: artifacts/bin/windows
-
-    - name: Download macOS Binary
-      uses: actions/download-artifact@v3
-      with:
-        name: smart-memory-mcp-macos
-        path: artifacts/bin/macos
-
-    - name: Download VSIX Package
-      uses: actions/download-artifact@v3
-      with:
-        name: vsix-package
-        path: artifacts/vsix
-
-    - name: Create Release
-      id: create_release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          artifacts/bin/linux/smart-memory-mcp-core
-          artifacts/bin/windows/smart-memory-mcp-core.exe
-          artifacts/bin/macos/smart-memory-mcp-core
-          artifacts/vsix/*.vsix
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-
-    - name: Publish to VS Code Marketplace
-      if: success()
-      run: |
-        npm install -g vsce
-        vsce publish -p ${{ secrets.VSCE_PAT }} --packagePath artifacts/vsix/*.vsix
+  codeql-analysis:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v3
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: rust, javascript, typescript
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
